@@ -4,8 +4,6 @@ title: "CV"
 permalink: /cv/
 ---
 
-# Curriculum Vitae  
-
 ## Profile  
 - **Name:** Graeme Boulton  
 - **Location:** London, UK  
