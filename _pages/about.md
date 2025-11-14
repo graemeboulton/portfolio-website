@@ -12,7 +12,7 @@ I have two wonderful children, aged 12 and 9, and an equally wonderful partner (
 
 ⸻
 
-**My Passion for Data**
+**My passion for data**
 
 I’m not entirely sure where it started, but my fascination with data goes right back to my mid-teens. When I studied a general ICT course at college, the subject I was most excited about was databases. I didn’t understand how they worked at the time — it genuinely felt like magic — and I was desperate to learn more.
 
@@ -20,7 +20,7 @@ Unfortunately, the course skimmed over data and focused heavily on web developme
 
 ⸻
 
-**How Hands-On Have I Been Despite Senior Roles?**
+**How hands-on have I been despite being in senior roles?**
 
 Data has been a core part of every role I’ve held.
 
@@ -30,26 +30,27 @@ I spent years buried in Google Analytics — analysing performance daily, buildi
 Multi-channel & Loyalty:
 When I moved into a wider commercial role, my usage of analytics grew even deeper. I designed and implemented a loyalty programme and was responsible for everything from segmentation to reporting to data quality tasks such as cleansing, migration, integration, and governance.
 
-During Covid (on furlough):
-I built the company’s entire Power BI architecture from the ground up.
+IT:
+I built the company’s entire Power BI architecture from the ground up back in 2020 during Covid, whilst the entire business was on furlough.
 I designed and managed the full ETL layer using dataflows, which involved complex cleansing and transformation. I created dozens of operational dashboards covering sales, footfall, conversion, customer metrics, employee KPIs and much more. I also built a comprehensive board-level reporting app spanning retail, merchandising, HR, marketing, and technology.
 
-Major Data & ML Projects:
 I’ve led several transformation projects, but one of the most relevant is a machine learning initiative focused on forecasting sales and optimising inventory movement. This project, completed through the UK government’s KTP programme, was awarded the highest possible grade — and the resulting academic paper was later picked up by a prestigious US university:
+
 https://www.sciencedirect.com/science/article/pii/S0957417424030677￼
 
 ⸻
 
-**Why I Chose to Leave a Director-Level Role to Focus on Data**
+**Why I chose to leave a director-level role to focus on data**
 
 There are a few reasons:
-	1.	Senior tech roles can be incredibly intense. You’re constantly spinning plates, and those plates increase year after year. I wanted to focus on fewer things but do them exceptionally well.
-	2.	After years of delivering major transformations, burnout is real. I’m not afraid of hard work — far from it — but I recognised the toll and knew it was time for a new challenge.
-	3.	Data is what I genuinely love. Stepping away from a senior leadership position wasn’t a step backwards — it was a deliberate choice to move toward the work that energises me the most.
+
+1.	Senior tech roles can be incredibly intense. You’re constantly spinning plates, and those plates increase year after year. I wanted to focus on fewer things but do them exceptionally well.
+2.	After years of delivering major transformations, burnout is real. I’m not afraid of hard work — far from it — but I recognised the toll and knew it was time for a new challenge.
+3.	Data is what I genuinely love. Stepping away from a senior leadership position wasn’t a step backwards — it was a deliberate choice to move toward the work that energises me the most.
 
 ⸻
 
-**Will I Have Any Difficulty Stepping Down in Seniority?**
+**Will I Have any difficulty stepping down in seniority?**
 
 Absolutely not.
 In fact, I’m genuinely looking forward to it.
