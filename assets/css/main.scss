@@ -1,0 +1,17 @@
+---
+# Only the main Sass file needs front matter
+---
+
+@charset "utf-8";
+
+// Load selected skin
+@import "minimal-mistakes/skins/{{ site.minimal_mistakes_skin | default: 'default' }}";
+
+// Load theme
+@import "minimal-mistakes";
+
+// 👇 Add your custom CSS below this line
+
+.sidebar {
+  background: #fafafa;
+}
