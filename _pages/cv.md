@@ -6,7 +6,7 @@ permalink: /cv/
 
 ## Overview 
 
-Please find below an overview of my current technical skill set, planned upskilling, and my CV. I’ve highlighted the areas of my career that best demonstrate my experience and involvement with data, given the transition I am making into a dedicated data role. While my previous positions covered a broad range of responsibilities, I’ve focused here on the aspects most relevant to analytics, reporting, and data-driven decision-making. If you’d like to learn more about any part of my background, please feel free to get in touch.
+Here are details of my current technical skill set, planned upskilling, and my CV. I’ve highlighted the areas of my career that best demonstrate my experience and involvement with data, given the transition I am making into a dedicated data role. While my previous positions covered a broad range of responsibilities, I’ve focused here on the aspects most relevant to analytics, reporting, and data-driven decision-making. If you’d like to learn more about any part of my background, please feel free to get in touch.
 
 ## Relevant Technical Skills  
 
@@ -71,10 +71,3 @@ Initially worked in retail, whilst in further education and running my own busin
 
 ### Owner – GB Web Solutions (January 2005 – November 2006)
 Founded and operated a small web development business, delivering data-backed e-commerce and analytics solutions for SMEs and local organisations.
-
-
-
-
-
-
-

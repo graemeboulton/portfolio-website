@@ -9,7 +9,7 @@ This page isn’t here to repeat my CV, but to share a bit more information abou
 
 **My passion for data**
 
-I’m not entirely sure where it started, but my fascination with data goes right back to my mid-teens. When I studied a general ICT course at college, the subject I was most excited about was databases. I didn’t understand how they worked at the time and I was desperate to learn more.
+My fascination with data goes right back to my mid-teens. When I studied a general ICT course at college, the subject I was most excited about was databases. I didn’t understand how they worked at the time and I was desperate to learn more.
 
 Unfortunately, the course didn't delve into data as much as I would have liked and instead focused heavily on web development, which shaped the early part of my career (as my CV reflects). But that curiosity for how data works never left. It’s always been an itch I’ve wanted to scratch properly.
 
@@ -40,7 +40,7 @@ https://www.sciencedirect.com/science/article/pii/S0957417424030677￼
 
 **Why I chose to leave a director-level role to focus on data**
 
-In what I could call the first phase of my career, I was extremely motived to get to the top of which ever organisation I joined and fortunately, I was able to do that. I felt that in that role I'd achieved everything I wanted, which was building fantastic teams and delivering tech in-house. After the delivery of the latest transformation project, I knew I needed a change to freshen things up, get re-energised and focus on the area that has been a passion for over two decades: data.
+In what I could call the first phase of my career, I was extremely motived to get to the top of which ever organisation I joined and fortunately, I was able to do that. I felt in that role I'd achieved everything I wanted, which culminated in delivering a large in-house ERP application and data platform. After the delivery of the latest transformation project, I knew I needed a change to freshen things up, get re-energised and focus on working exclusively with data.
 
 ⸻
 
