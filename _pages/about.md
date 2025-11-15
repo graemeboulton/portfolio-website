@@ -3,7 +3,7 @@ permalink: /about/
 title: "About"
 ---
 
-This page isn’t here to repeat my CV, but to share a bit more information about me, which I *hope* will be useful to potential employers and/or recruiters.
+This page isn’t here to repeat my CV, but to share a bit more information about me, which I *hope* will be useful to potential employers and/or recruiters..
 
 ⸻
 
