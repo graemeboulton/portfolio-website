@@ -51,8 +51,7 @@ In fact, I’m genuinely looking forward to it.
 
 I’m excited to be more hands-on, more technical, and to continue learning and building meaningful solutions. I see this move not as a drop in seniority, but as a refocusing toward what I enjoy and what I want the next chapter of my career to be about.
 
-It is important to state also, that I am expecting any future salaries to be re-aligned to reflect the drop in seniority and level of responsibility in general.
-
+It is also important to state that I’m fully aware and comfortable that future salary levels will align with the reduced seniority and narrower remit.
 ⸻
 
 **What am I doing currently?**
