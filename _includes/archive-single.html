@@ -1,0 +1,36 @@
+<article class="archive__item" itemscope itemtype="https://schema.org/CreativeWork">
+
+  <h2 class="archive__item-title no_toc" itemprop="headline">
+    <a href="{{ post.url | relative_url }}" rel="permalink">{{ post.title }}</a>
+  </h2>
+
+  <p class="page__meta">
+
+    <!-- Date -->
+    <span class="page__meta-date">
+      <i class="far fa-calendar-alt" aria-hidden="true"></i>
+      {{ post.date | date: "%-d %B %Y" }}
+    </span>
+
+    <!-- Read time -->
+    {% capture words %}
+      {{ post.content | number_of_words }}
+    {% endcapture %}
+
+    {% assign minutes = words | plus:0 | divided_by:360 | ceil %}
+    {% assign minutes = minutes | at_least: 1 %}
+
+    <span class="page__meta-readtime">
+      <i class="far fa-clock" aria-hidden="true"></i>
+      {{ minutes }} min read
+    </span>
+
+  </p>
+
+  {% if post.excerpt %}
+    <p class="archive__item-excerpt" itemprop="description">
+      {{ post.excerpt | strip_html }}
+    </p>
+  {% endif %}
+
+</article>

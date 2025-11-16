@@ -1,5 +1,5 @@
 ---
-title: "SQL - Creation of bespoke data table"
+title: "Custom date table built in SQL"
 date: 2025-11-16
 categories:
   - blog
