@@ -7,7 +7,7 @@ This page isn’t here to repeat my CV, but to share a bit more information abou
 
 ⸻
 
-**My passion for data**
+## My passion for data
 
 My fascination with data goes right back to my mid-teens. When I studied a general ICT course at college, the subject I was most excited about was databases. I didn’t understand how they worked at the time and I was desperate to learn more.
 
@@ -15,7 +15,7 @@ Unfortunately, the course didn't delve into data as much as I would have liked a
 
 ⸻
 
-**How hands-on have I been despite being in senior roles?**
+## How hands-on have I been despite being in senior roles?
 
 Data has been a core part of every role I’ve held.
 
@@ -38,13 +38,13 @@ https://www.sciencedirect.com/science/article/pii/S0957417424030677￼
 
 ⸻
 
-**Why I chose to leave a director-level role to focus on data**
+## hy I chose to leave a director-level role to focus on data
 
 In what I could call the first phase of my career, I was extremely motived to get to the top of which ever organisation I joined and fortunately, I was able to do that. I felt in that role I'd achieved everything I wanted, which culminated in delivering a large in-house ERP application and data platform. After the delivery of the latest transformation project, I knew I needed a change to freshen things up, get re-energised and focus on working exclusively with data.
 
 ⸻
 
-**Will I have any difficulty stepping down in seniority?**
+## Will I have any difficulty stepping down in seniority?
 
 Absolutely not.
 In fact, I’m genuinely looking forward to it.
@@ -54,7 +54,7 @@ I’m excited to be more hands-on, more technical, and to continue learning and 
 It is also important to state that I’m fully aware and comfortable that future salary levels will align with the reduced seniority and narrower remit.
 ⸻
 
-**What am I doing currently?**
+## What am I doing currently?
 
 I left my previous role on Friday 31st October. I took a week off to recharge, and then I got straight into learning.
 
