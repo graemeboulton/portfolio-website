@@ -60,7 +60,7 @@ plugins:
 author:
   # name   : "Graeme Boulton"
   avatar : "/assets/images/bio-photo.jpeg"
-  bio    : "Hey, I'm Graeme, welcome to my website. Here you can find out more about me, my c.v. and my work (coming soon!)"
+  bio    : "Hey, I'm Graeme, welcome to my website. Here you can find out more about me, my c.v. and my work"
 
   links:
     - label: "LinkedIn"
