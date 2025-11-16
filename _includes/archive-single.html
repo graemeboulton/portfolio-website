@@ -10,10 +10,10 @@
       {{ post.date | date: "%-d %B %Y" }}
     </span>
 
-    {% if post.read_time %}
+    {% if post.reading_time %}
       <span class="page__meta-readtime">
         <i class="far fa-clock" aria-hidden="true"></i>
-        {{ post.read_time }}
+        {{ post.reading_time }} min read
       </span>
     {% endif %}
   </p>
