@@ -15,9 +15,7 @@ I’ve built this so it can be re-run at the beginning of each trading year, wit
 
 In the spirit of honesty, I did lean on ChatGPT for support to help refine the logic and to tidy up the final version into the cleaner format you see here.
 
-Below is the SQL itself, and here’s a <a href="https://raw.githubusercontent.com/graemeboulton/portfolio/master/assets/files/trading_calendar.csv" download>link</a> to the output in CSV format.
-
-
+Below is the SQL itself, and here’s the <a href="https://raw.githubusercontent.com/graemeboulton/portfolio/master/assets/files/trading_calendar.csv" download>raw output</a>
 
 
 ```sql
