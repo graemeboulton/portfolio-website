@@ -15,7 +15,7 @@ To fix this, I created a second table called trading_months_and_weeks. This tabl
 
 I used ChatGPT as a learning tool while working through this, mainly to validate my approach and help refine the final SQL examples. The core logic and modelling decisions were developed by me.
 
-Here is the SQL for the trading_months_and_weeks table.
+Below is the SQL itself, and here’s a <a href="https://github.com/graemeboulton/portfolio/tree/master/assets/files/date_table" download>link</a> to the files in my public GitHub repo.
 
 ```sql
 CREATE TABLE trading_months_and_weeks (

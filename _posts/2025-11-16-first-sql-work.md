@@ -15,7 +15,7 @@ I’ve built this so it can be re-run at the beginning of each trading year, wit
 
 I used ChatGPT as a learning tool while working through this, mainly to validate my approach and help refine the final SQL examples. The core logic and modelling decisions were developed by me.
 
-Below is the SQL itself, and here’s a <a href="https://github.com/graemeboulton/portfolio/blob/master/assets/files/trading_calendar.csv" download>link</a> to the file in my public GitHub repo.
+Below is the SQL itself, and here’s a <a href="https://github.com/graemeboulton/portfolio/tree/master/assets/files/date_table" download>link</a> to the file in my public GitHub repo.
 
 
 ```sql
