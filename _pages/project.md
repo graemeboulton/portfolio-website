@@ -13,6 +13,6 @@ Hope you find the data interesting.
 And if you're a recruiter or employer who likes what you see, get in touch :D
 
 {% raw %}
-<iframe title="Jobs" width="600" height="373.5" src="https://app.powerbi.com/view?r=eyJrIjoiNTMxZTU1MGUtYWZiMS00ODBhLTlhYzQtNDZiZTE1ZmU3NjAyIiwidCI6IjVkNWVkNWRjLTE1YTctNDljMi05OWU2LWQzYmQ1NzY0YjM1NiJ9" frameborder="0" allowFullScreen="true"></iframe>
+<iframe title="Jobs 1" width="600" height="373.5" src="https://app.powerbi.com/view?r=eyJrIjoiMGVhYTAxNjgtOTFiMy00MzVkLWJlYzMtMDIzZDI5N2NkOGFkIiwidCI6IjVkNWVkNWRjLTE1YTctNDljMi05OWU2LWQzYmQ1NzY0YjM1NiJ9&pageName=801249cc78928d02bb84" frameborder="0" allowFullScreen="true"></iframe>
 {% endraw %}
 
