@@ -8,6 +8,8 @@ published: true
 
 Here is a high-level summary of this project. I will post a deep-dive into the finer details, but for now it explains how it was pulled together.
 
+**👉 [View the full project dashboard](https://www.graemeboulton.com/project/)**  
+
 ## Reed Job Pipeline — Project Summary
 
 
