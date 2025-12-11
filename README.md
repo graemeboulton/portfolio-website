@@ -1,27 +1,72 @@
-# Minimal Mistakes remote theme starter
+# Graeme Boulton — Portfolio Website
 
-Click [**Use this template**](https://github.com/mmistakes/mm-github-pages-starter/generate) button above for the quickest method of getting started with the [Minimal Mistakes Jekyll theme](https://github.com/mmistakes/minimal-mistakes).
+This repository contains the source for my personal portfolio website: **[graemeboulton.com](https://www.graemeboulton.com)**.
+It showcases my work in **data analytics**, **business intelligence**, and **cloud engineering**, and acts as a central place for my projects, dashboards, and articles.
 
-Contains basic configuration to get you a site with:
-
-- Sample posts.
-- Sample top navigation.
-- Sample author sidebar with social links.
-- Sample footer links.
-- Paginated home page.
-- Archive pages for posts grouped by year, category, and tag.
-- Sample about page.
-- Sample 404 page.
-- Site wide search.
-
-Replace sample content with your own and [configure as necessary](https://mmistakes.github.io/minimal-mistakes/docs/configuration/).
+The site is built using the **Minimal Mistakes Jekyll theme**, deployed via **GitHub Pages**, and customised to serve as a clean, fast, and easy-to-navigate portfolio for prospective employers, recruiters, and anyone curious about my work in data.
 
 ---
 
-## Troubleshooting
+## 🚀 Purpose of the Website
 
-If you have a question about using Jekyll, start a discussion on the [Jekyll Forum](https://talk.jekyllrb.com/) or [StackOverflow](https://stackoverflow.com/questions/tagged/jekyll). Other resources:
+The site is designed to:
 
-- [Ruby 101](https://jekyllrb.com/docs/ruby-101/)
-- [Setting up a Jekyll site with GitHub Pages](https://jekyllrb.com/docs/github-pages/)
-- [Configuring GitHub Metadata](https://github.com/jekyll/github-metadata/blob/master/docs/configuration.md#configuration) to work properly when developing locally and avoid `No GitHub API authentication could be found. Some fields may be missing or have incorrect data.` warnings.
+* Present my end-to-end data projects, including ETL pipelines, cloud architecture, data modelling, and Power BI dashboards.
+* Highlight my technical strengths across **Python**, **SQL**, **Azure**, **Power BI**, and modern data engineering practices.
+* Share write-ups, technical deep-dives, and learning resources.
+* Provide a single, professional landing page during my transition further into the data and analytics field.
+
+---
+
+## 📁 Repository Structure
+
+The repo follows the typical Minimal Mistakes layout:
+
+* **`index.html`** – Homepage layout
+* **`_pages/`** – Custom pages (About, Projects, Portfolio, etc.)
+* **`_posts/`** – Blog posts / long-form write-ups
+* **`assets/`** – Images, screenshots, diagrams
+* **`_data/`** – Navigation and configuration data
+* **`_config.yml`** – Global site configuration for theme, plugins, navigation, and metadata
+* **`CNAME`** – Custom domain configuration for graemeboulton.com
+
+---
+
+## 🧩 Technology Stack
+
+**Framework**: Jekyll
+**Theme**: Minimal Mistakes
+**Hosting**: GitHub Pages
+**Languages**: HTML, Markdown, Liquid
+**Integrations**:
+
+* Power BI embedded reports (where supported)
+* External GitHub repositories for project source code
+* Images, diagrams, and architecture visuals generated during my data pipeline builds
+
+---
+
+## 🛠 Customisation
+
+To adapt the theme for a portfolio-focused layout, I’ve:
+
+* Added custom navigation items for *Projects*, *Portfolio*, and *About*
+* Embedded interactive dashboards and screenshots
+* Created dedicated pages for major data builds (Azure ETL pipeline, Power BI dashboards, SQL modelling, etc.)
+* Added SEO metadata and descriptions for indexing
+* Created reusable page templates for future projects and blog posts
+
+---
+
+## 📬 Contact
+
+If you’d like to reach out or view more of my work:
+
+* **Website**: [https://www.graemeboulton.com](https://www.graemeboulton.com)
+* **LinkedIn**: [https://linkedin.com/in/graemeboulton](https://linkedin.com/in/graemeboulton)
+
+---
+
+## 📄 License
+
+This project is open-source under the MIT License. Feel free to explore, reference, or adapt the structure for your own site.
