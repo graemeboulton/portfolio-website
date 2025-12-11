@@ -6,7 +6,7 @@ permalink: /cv/
 
 
 
-## Professional Summar 
+## Professional Summary 
 
 Data-focused technology professional with over 15 years of experience delivering analytical, reporting, and digital transformation solutions across the retail and not-for-profit sectors, with a proven ability to translate business challenges into clear, actionable insights.
 
