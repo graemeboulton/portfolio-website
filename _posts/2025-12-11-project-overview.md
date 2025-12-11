@@ -1,5 +1,5 @@
 ---
-title: "Technical overview of jobs insight project"
+title: "Jobs insight project is now live - here's a high level overview of how it was created"
 date: 2025-12-11 12:00:00 +0000
 categories:
   - blog
