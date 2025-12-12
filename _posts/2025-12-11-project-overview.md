@@ -1,5 +1,5 @@
 ---
-title: "Job insights project "
+title: "Job Insights Dashboard — Now Live"
 date: 2025-12-11 12:00:00 +0000
 categories:
   - blog
