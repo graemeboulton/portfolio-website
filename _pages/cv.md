@@ -14,41 +14,40 @@ Combining strategic leadership with hands-on technical expertise, I have built a
 
 Now seeking a role that allows me to apply my technical strengths more directly within the data and analytics space, I’m passionate about using data storytelling and visualisation to influence business performance and help organisations make smarter, evidence-based decisions.
 
-
-
 ## Core Data and BI Skills 
 
 ### Analytics & BI Tools
 
 - Power BI (data modelling, DAX, Power Query, dataflows)
-
 - Excel (Power Pivot, advanced analytics)
-
 - Python (Pandas, API ingestion, cleaning, automation)
-
 - SQL (PostgreSQL, T-SQL, building queries/views)
 
 ### Data Engineering & Architecture
 
 - ETL / ELT pipelines
-
 - Azure (Azure Data Factory, Azure Functions, Azure Storage, Key Vault)
-
 - Data modelling (star schema, dimensional modelling)
-
 - Data warehouse concepts
-
 - API integration & automation
 
 ### Business & Reporting
 
 - KPI design, dashboard development
-
 - Data governance & data quality improvement
-
 - Forecasting and statistical analysis
-
 - Stakeholder engagement across technical & non-technical groups
+
+### Other
+
+- Git / GitHub (version control, branching, pull requests)
+- Agile & Scrum methodologies
+- Documentation & technical writing
+- Testing & validation (unit testing, data quality checks)
+- Stakeholder management & cross-functional collaboration
+- Requirements gathering & process mapping
+
+
 
 ## Work Experience  
 

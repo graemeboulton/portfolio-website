@@ -3,7 +3,7 @@ permalink: /about/
 title: "About"
 ---
 
-TThis page isn’t here to repeat my CV — it’s here to share more about who I am, why I’m transitioning into a data-focused career, and what I’m doing to make that move as strong and intentional as possible.
+This page isn’t here to repeat my CV — it’s here to share more about who I am, why I’m transitioning into a data-focused career, and what I’m doing to make that move as strong and intentional as possible.
 
 
 ## My passion for data
