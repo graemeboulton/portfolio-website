@@ -1,5 +1,5 @@
 ---
-title: "Portfolio Project: UK Data Job Market Insights Dashboard"
+title: "Portfolio Project #1 Complete - UK Data Job Market Insights Dashboard"
 date: 2025-12-11 12:00:00 +0000
 categories:
   - blog

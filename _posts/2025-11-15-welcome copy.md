@@ -1,5 +1,5 @@
 ---
-title: "Exploring Azure Databricks & Synapse — Portfolio Project #2"
+title: " —Portfolio Project #2 Decided - Exploring Azure Databricks & Synapse"
 date: 2025-12-12 12:00:00 +0000
 categories:
   - blog
