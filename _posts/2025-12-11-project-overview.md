@@ -7,7 +7,7 @@ published: true
 ---
 
 After three weeks of solid work, I’ve just published my Jobs Insights dashboard.
-**👉 [View the full project dashboard](https://www.graemeboulton.com/project/)**  
+**👉 [View the full project dashboard](https://www.graemeboulton.com/job-insights-project/)**  
 
 The dashboard itself only contains seven pages, but getting there involved much more than the visuals. I built an end-to-end pipeline that pulls raw JSON from the Reed.co.uk API, processes it through Python, Azure Functions, Azure Storage and PostgreSQL, and then models it for analysis in Power BI.
 
