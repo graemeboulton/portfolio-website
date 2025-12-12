@@ -1,7 +1,7 @@
 ---
 layout: single
 title: "Jobs Insights Project"
-permalink: /project/
+permalink: /job-insights-project/
 ---
 
 {% raw %}
