@@ -1,5 +1,5 @@
 ---
-title: "Portfolio Project #2 – Azure Data Stack, CI/CD & DevOps"
+title: "Portfolio Project #2: Azure Data Stack, CI/CD & DevOps"
 date: 2025-12-12 12:00:00 +0000
 categories:
   - blog
