@@ -1,5 +1,5 @@
 ---
-title: "On To Portfolio Project Number 2.."
+title: "Exploring Azure Databricks & Synapse — Portfolio Project #2"
 date: 2025-12-12 12:00:00 +0000
 categories:
   - blog
