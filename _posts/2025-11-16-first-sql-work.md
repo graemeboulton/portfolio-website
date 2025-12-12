@@ -1,5 +1,5 @@
 ---
-title: "Custom date table built in SQL"
+title: "Custom Date Table Built In SQL"
 date: 2025-11-16
 categories:
   - blog

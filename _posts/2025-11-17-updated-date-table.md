@@ -1,5 +1,5 @@
 ---
-title: "Improved date table logic"
+title: "Improved Date Table Logic"
 date: 2025-11-17
 categories:
   - blog
