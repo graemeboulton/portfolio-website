@@ -1,7 +1,7 @@
 title: Graeme Boulton
 
-url: "https://graemeboulton.github.io"
-baseurl: "/portfolio-website"
+url: "https://www.graemeboulton.com"
+baseurl: ""
 
 plugins:
   - jekyll-bookshop
