@@ -10,7 +10,7 @@ menu__settings:
       url: '/blog.html'
     - title: 'Transitioning into Data'
       url: '/transitioning-into-data.html'
-    - title: 'C.V'
+    - title: 'C.V.'
       url: '/cv.html'
 
 
