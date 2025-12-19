@@ -4,7 +4,9 @@ layout: default
 
 <div class="container">
 
-  {% bookshop page-heading title=page.title description=page.subtitle %}
+  <div class="page__info">
+    {% bookshop page-heading title=page.title description=page.subtitle %}
+  </div>
   {% assign page_image = site.baseurl | append: page.image %}
   {% bookshop page-image image=page_image %}
 
