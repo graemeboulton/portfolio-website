@@ -3,6 +3,7 @@ date: 2025-11-16 05:20:35 +0300
 title: Custom data table logic
 subtitle: Date dimension table used for time intelligence reporting
 image: '/images/custom-date-table.png'
+hide_image: true
 ---
 In my welcome post I mentioned that work was already underway on a small end-to-end project. Rather than waiting until everything is finished, I wanted to share the SQL I wrote to build a custom trading calendar table.
 

@@ -3,6 +3,7 @@ date: 2025-12-11 05:20:35 +0300
 title: Jobs Insights Project
 subtitle: End-to-end ETL pipeline using Python, SQL, Azure & Power BI
 image: '/images/job-insights-hero.png'
+hide_image: true
 ---
 
 <iframe title="Jobs 1" width="800" height="373.5" src="https://app.powerbi.com/view?r=eyJrIjoiMGVhYTAxNjgtOTFiMy00MzVkLWJlYzMtMDIzZDI5N2NkOGFkIiwidCI6IjVkNWVkNWRjLTE1YTctNDljMi05OWU2LWQzYmQ1NzY0YjM1NiJ9&pageName=801249cc78928d02bb84" frameborder="0" allowFullScreen="true"></iframe>
@@ -13,13 +14,19 @@ image: '/images/job-insights-hero.png'
 
 ![Jobs Pipeline](/images/jobs-pipeline.png)
 
+---
+
 ## Project background
 
 With this project, I wanted to both demonstrate a broad range of data and BI skills and gain practical insights into the job market to support my own career transition.
 
+---
+
 ## Data selection
 
 Initially, I considered using sample datasets from Kaggle or Hugging Face, but after researching publicly available options, the Reed.co.uk API stood out as a richer, more realistic source for a project centred around analytics, ETL, and reporting.
+
+---
 
 ## Skills demonstration
 
