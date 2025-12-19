@@ -1,7 +1,7 @@
 ---
 date: 2025-12-11 05:20:35 +0300
 title: UK data job market insights v1
-subtitle: Serverless ETL using a Python-based Azure Function
+subtitle: Serverless ETL using Python Azure Functions, with transformations in SQL, Power Query, and DAX, presented in Power BI.”
 image: '/images/job-insights-hero.png'
 hide_image: true
 ---

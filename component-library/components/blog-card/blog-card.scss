@@ -109,6 +109,9 @@
     font-weight: 700;
 
     a {
+      text-decoration: underline;
+      text-underline-offset: 3px;
+      text-decoration-thickness: 2px;
       &:hover {
         color: $text-color;
       }
