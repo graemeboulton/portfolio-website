@@ -1,7 +1,7 @@
 ---
 date: 2025-12-11 05:20:35 +0300
-title: Jobs Insights Project
-subtitle: End-to-end ETL pipeline using Python, SQL, Azure & Power BI
+title: UK data job market insights v1
+subtitle: Serverless ETL using a Python-based Azure Function
 image: '/images/job-insights-hero.png'
 hide_image: true
 ---

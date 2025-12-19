@@ -1,7 +1,7 @@
 ---
 date: 2025-12-19 05:20:35 +0300
-title: Power BI Migration
-subtitle: Migration from SAP BusinessObjects to Power BI
+title: Migrating SAP Business Objects to Power BI
+subtitle: Details of real-world migration I carried out in my previous role
 image: '/images/power-bi-migration.svg'
 hide_image: true
 ---

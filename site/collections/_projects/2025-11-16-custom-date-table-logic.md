@@ -1,6 +1,6 @@
 ---
 date: 2025-11-16 05:20:35 +0300
-title: Custom data table logic
+title: Custom data table logic v1
 subtitle: Date dimension table used for time intelligence reporting
 image: '/images/custom-date-table.png'
 hide_image: true
