@@ -7,14 +7,16 @@ layout: default
     <div class="row">
 
       {%if page.image %}
-      <div class="col col-6 col-d-12">
+      <div class="col col-12">
         <div class="post-image">
           <img loading="lazy" src="{{site.baseurl}}{{page.image}}" alt="{{page.title}}">
         </div>
       </div>
       {%endif %}
+    </div>
 
-      <div class="col col-6 col-d-12">
+    <div class="row">
+      <div class="col col-12">
         <div class="post__info">
 
           {% if page.tags.size >= 1 %}
@@ -25,7 +27,6 @@ layout: default
           </div>
           {% endif %}
 
-
           <h1 class="post__title">{{ page.title | escape }}</h1>
 
           <div class="post__meta">
@@ -35,8 +36,7 @@ layout: default
 
             <div class="post__meta-bottom">
               <div class="post__author">{{ site.data.author.author_name }}</div>
-              <time class="post__date" datetime="{{ page.date | date_to_xmlschema }}">{{ page.date | date_to_string
-                }}</time>
+              <time class="post__date" datetime="{{ page.date | date_to_xmlschema }}">{{ page.date | date_to_string }}</time>
             </div>
           </div>
 
