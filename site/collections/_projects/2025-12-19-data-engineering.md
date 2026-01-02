@@ -10,7 +10,7 @@ hide_image: true
 
 This project demonstrates the design and implementation of a **production-style, end-to-end data engineering pipeline** using Microsoft Azure services. The objective was to ingest data from an on-premises SQL Server, apply scalable transformations using modern data engineering patterns, and deliver analytics-ready data to business users through Power BI.
 
-The project mirrors real-world enterprise data platforms, focusing on automation, security, and analytics enablement rather than isolated tooling..
+The project mirrors real-world enterprise data platforms, focusing on automation, security, and analytics enablement rather than isolated tooling.
 
 ---
 
