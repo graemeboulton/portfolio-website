@@ -2,9 +2,9 @@ name: Build & Deploy Jekyll (GitHub Pages)
 
 on:
   push:
-    branches: ["master"]
+    branches: ["main", "master"]
   pull_request:
-    branches: ["master"]
+    branches: ["main", "master"]
   workflow_dispatch:
 
 permissions:
@@ -24,6 +24,10 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
 
+      # If you really need bundler 4.0.1, install it before setup-ruby caching runs bundler
+      - name: Install Bundler (match Gemfile.lock)
+        run: gem install bundler -v 4.0.1
+
       - name: Setup Ruby
         uses: ruby/setup-ruby@v1
         with:
@@ -31,10 +35,6 @@ jobs:
           bundler-cache: true
         env:
           BUNDLE_GEMFILE: site/Gemfile
-
-      - name: Install Bundler (match Gemfile.lock)
-        run: gem install bundler -v 4.0.1
-        working-directory: site
 
       - name: Setup GitHub Pages
         id: pages
@@ -44,20 +44,20 @@ jobs:
         working-directory: site
         env:
           JEKYLL_ENV: production
+          BUNDLE_GEMFILE: site/Gemfile
         run: |
           bundle exec jekyll build \
             --baseurl "${{ steps.pages.outputs.base_path }}"
 
       - name: Install html-proofer
-        run: gem install html-proofer
         working-directory: site
+        run: gem install html-proofer -v 5.1.1
 
       - name: Check built site for broken links
         working-directory: site
         run: |
           htmlproofer ./_site \
             --disable-external \
-            --check-html \
             --allow-hash-href
 
       - name: Upload Pages artifact
