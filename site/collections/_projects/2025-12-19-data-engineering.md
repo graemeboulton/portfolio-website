@@ -1,5 +1,5 @@
 ---
-date: 2025-12-19 06:20:35 +0300
+date: 2025-12-19 06:20:35 +0301
 title: Data engineering with Azure & Databricks
 subtitle: ETL using Azure and Databricks with a medallion architecture (In Progress)
 image: '/images/data-engineering-project.svg'
