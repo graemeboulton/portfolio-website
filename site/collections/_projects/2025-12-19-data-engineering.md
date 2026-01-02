@@ -17,7 +17,7 @@ The project mirrors real-world enterprise data platforms, focusing on automation
 ## Infrastructure & Architecture
 
 ![Jobs Pipeline](/images/data-engineering-pipeline.svg)
-
+![Jobs Pipeline](/images/nonexistent-pipeline.svg)
 
 ---
 
