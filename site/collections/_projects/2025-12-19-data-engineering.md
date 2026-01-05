@@ -6,129 +6,130 @@ image: '/images/data-engineering-project.svg'
 hide_image: true
 ---
 
-## Project background
+## Project Overview
 
-This project demonstrates the design and implementation of a **production-style, end-to-end data engineering pipeline** using Microsoft Azure services. The objective was to ingest data from an on-premises SQL Server, apply scalable transformations using modern data engineering patterns, and deliver analytics-ready data to business users through Power BI.
+When I decided on my first portfolio project — the [UK data job market insights](https://www.graemeboulton.com/project/job-insights-project-copy) — one of its main purposes was to better understand where demand and value existed in the market, and to use those insights to help guide my own upskilling.
 
-The project mirrors real-world enterprise data platforms, focusing on automation, security, and analytics enablement rather than isolated tooling..
+From a data engineering perspective, **Azure** appeared very dominant in the UK market, with services such as **Databricks** and **Synapse** mentioned consistently. From a BI perspective, **Tableau** emerged as the second most commonly requested tool. Based on this, I decided to incorporate all three into this project.
+
+I was also keen to work with a different type of data source, so for this project I chose an **on-premises SQL Server** and used the [AdventureWorks sample database](https://learn.microsoft.com/en-us/sql/samples/adventureworks-install-configure?view=sql-server-ver17&tabs=ssms). In terms of transformations, I wanted to follow an industry-standard **Bronze → Silver → Gold** pattern to reflect how modern data platforms are typically structured in production environments.
 
 ---
 
-## Infrastructure & Architecture
+## Architecture
 
 ![Jobs Pipeline](/images/data-engineering-pipeline.svg)
 
 ---
 
-## Solution Overview
+## Technical Stack
 
-To address these requirements, a cloud-based data platform was built on Azure with the following objectives:
+- Azure Data Factory
+- Azure Data Lake Storage Gen2
+- Azure Databricks
+- Azure Synapse Analytics
+- Azure Key Vault
+- Microsoft Entra ID
+- Tableau
 
-- Securely ingest data from an on-premises SQL Server
-- Apply structured transformations using a medallion architecture
-- Serve analytics-ready data via SQL
-- Enable interactive business reporting
-- Automate and govern the entire pipeline
+## Implementation Overview
 
----
+### Data Ingestion
 
-## Architecture & Pipeline Flow
+Data ingestion was handled using **Azure Data Factory** to securely extract data from an **on-premises SQL Server** environment and land it in Azure in a scalable, repeatable way.
 
-### 1. Data Ingestion (Bronze Layer)
+Because the source database was hosted locally, a **Self-Hosted Integration Runtime (SHIR)** was installed and configured on the machine running SQL Server. This allowed Azure Data Factory to communicate securely with the on-prem environment without exposing the database publicly.
 
-- Azure Data Factory connects to the on-premises SQL Server using a **self-hosted integration runtime**
-- Table metadata is dynamically retrieved to avoid hardcoding
-- Source tables are extracted and stored as **Parquet files** in the Bronze layer of Azure Data Lake Storage
+Rather than hard-coding individual tables, the ingestion pipeline was designed to be **fully dynamic**:
 
-This approach allows the pipeline to automatically adapt to schema or table changes.
+- A **Lookup activity** queries SQL Server system tables to discover all tables within the `SalesLT` schema
+- The results are returned as JSON and passed into a **ForEach activity**
+- Each table is extracted using a dynamically generated `SELECT * FROM schema.table` statement
 
----
+This approach ensures the pipeline automatically adapts if tables are added or removed, without requiring code changes.
 
-### 2. Data Transformation – Silver Layer
+All extracted data is written to **Azure Data Lake Storage Gen2** in **Parquet format**, organised into a Bronze layer using a structured folder layout:
 
-- Azure Databricks notebooks perform initial cleansing and standardisation
-- Data types are normalised and schemas aligned
-- Outputs are written in **Delta format**, enabling:
-  - Schema evolution
-  - Version tracking
-  - Reliable overwrite and append operations
-
-The Silver layer represents clean, standardised source data.
+```
+bronze/{schema}/{table}/{table}.parquet
+```
 
 ---
 
-### 3. Data Transformation – Gold Layer
+### Data Transformation
 
-- Business-level transformations are applied
-- Tables are reshaped into analytics-friendly structures
-- Column names are standardised (e.g. `UPPER_SNAKE_CASE`)
-- Outputs follow **fact and dimension-style patterns**
+Data transformation was implemented using **Azure Databricks** and follows a clear **Bronze → Silver → Gold** pattern to separate raw data from curated and business-ready datasets.
 
-The Gold layer acts as the single source of truth for analytics and reporting.
+#### Bronze → Silver
 
----
+The Silver layer focuses on **data cleanliness and consistency**. Databricks notebooks read the raw Parquet files from the Bronze layer and the following transformations were applied:
 
-### 4. Orchestration & Automation
+- Standardising data types (e.g. converting timestamps to dates where appropriate)
+- Cleaning and normalising columns
+- Removing technical inconsistencies from the source system
+- Ensuring schemas are consistent across tables
 
-- Azure Data Factory orchestrates the full pipeline end-to-end
-- Databricks notebooks are triggered directly from ADF
-- Pipelines are scheduled to run automatically on a daily basis
-- Monitoring and debugging are handled through Azure-native tooling
+The cleaned data is written to the Silver layer using **Delta Lake**, which adds transaction support, schema enforcement, and version history on top of Parquet.
 
----
+#### Silver → Gold
 
-### 5. Data Serving with Synapse Serverless SQL
+The Gold layer represents **analytics-ready business data**. At this stage, the focus shifts from cleaning to modelling:
 
-- Azure Synapse Serverless SQL queries data directly from the Gold layer
-- SQL views are created over Delta tables using `OPENROWSET`
-- No data is duplicated or copied into a traditional warehouse
+- Joining related tables into meaningful datasets
+- Applying business logic and calculations
+- Renaming columns into consistent, human-readable formats
+- Producing fact and dimension-style outputs optimised for BI tools
 
-This approach provides SQL accessibility with minimal infrastructure cost.
+Delta Lake continues to be used at this layer, enabling reliable overwrites, easy debugging via version history, and resilience to schema evolution.
 
 ---
 
-### 6. Reporting & Analytics
+### Orchestration
 
-- Power BI connects to Synapse Serverless SQL
-- SQL views are imported into the Power BI data model
-- Relationships are defined between fact and dimension tables
-- Interactive dashboards provide insights into:
-  - Total sales
-  - Product performance
-  - Customer demographics
-  - Gender-based purchasing patterns
+End-to-end orchestration is handled by **Azure Data Factory**, which coordinates ingestion, transformation, and downstream processing.
+
+The pipeline flow is:
+
+1. Extract data from on-prem SQL into the Bronze layer  
+2. Trigger Databricks notebooks to transform Bronze → Silver  
+3. Trigger Databricks notebooks to transform Silver → Gold  
+
+Databricks notebooks are integrated into Data Factory using **linked services**, with sensitive access tokens stored securely in **Azure Key Vault**.
+
+A **daily schedule trigger** ensures the entire pipeline runs automatically, keeping analytics data up to date without manual intervention.
+
+Operational visibility is provided through:
+
+- Pipeline run monitoring
+- Activity-level success and failure tracking
+- The ability to **rerun failed steps** without reprocessing the entire pipeline
+
+This orchestration design closely mirrors how production data pipelines are built and operated in real-world Azure environments.
+
+---
+
+## Serving & Reporting
+
+The curated Gold datasets are exposed via **Azure Synapse Analytics (Serverless SQL)** and consumed directly by **Tableau**.
+
+Using a serverless SQL layer allows Tableau to query the data lake without duplicating data, while still providing a familiar relational interface for analytics and visualisation.
+
+Note: Dashboards are currently in progress
 
 ---
 
 ## Security & Governance
 
-- Secrets (database credentials, access tokens) are stored in **Azure Key Vault**
-- Managed identities are used instead of hard-coded credentials
-- Access is controlled using **Microsoft Entra ID security groups**
-- Role-based access control (RBAC) is applied at the resource group level
-
-This setup reflects enterprise-grade security and governance practices.
+- Managed identities used across Azure services
+- Secrets stored securely in Azure Key Vault
+- RBAC enforced via Microsoft Entra ID
+- Security groups used to manage access at scale
 
 ---
 
 ## Outcome
 
-The final solution delivers a **fully automated, scalable, and secure data platform** that transforms raw operational data into actionable business insights.
-
-This project demonstrates hands-on experience with:
-- Cloud data ingestion
-- Distributed data processing
-- Data modelling for analytics
-- Pipeline orchestration
-- Security and governance
-- Business-facing reporting
-
----
-
-## Future Enhancements
-
-- Implement incremental loads or change data capture (CDC)
-- Add data quality validation checks
-- Introduce CI/CD for pipeline deployment
-- Integrate monitoring and alerting
-- Extend the model to support additional data sources
+- Fully automated end-to-end data pipeline
+- Analytics-ready data model optimised for Tableau
+- Daily refreshed dashboards without manual intervention
+- Scalable, production-aligned Azure architecture

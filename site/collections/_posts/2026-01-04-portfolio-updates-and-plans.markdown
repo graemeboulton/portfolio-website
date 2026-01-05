@@ -18,7 +18,7 @@ I originally planned to use Power BI for this, but on second thought I decided i
 
 One other change from the original spec is that I’ve stripped out CI/CD and DevOps from this project. Rather than bolt them on here, I’ve decided to tackle them as a separate set of focused pieces instead (more on that below).
 
-There’s already a partial write-up on the portfolio page, which I’ll complete once the BI work is done. Again, the aim is to wrap that up during w/c Monday 5th January 2026.
+There’s already a partial write-up on the portfolio page, which I’ll complete once the BI work is done. 
 
 ### CI/CD & DevOps
 
