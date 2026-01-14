@@ -774,11 +774,3 @@ Note: Dashboards are currently in progress
 - **RBAC** enforced via Microsoft Entra ID
 - **Security groups** used to manage access at scale
 
----
-
-## Outcome
-
-- **Fully automated** end-to-end data pipeline
-- **Analytics-ready** data model optimised for Tableau
-- **Daily refreshed** dashboards without manual intervention
-- **Scalable**, production-aligned Azure architecture

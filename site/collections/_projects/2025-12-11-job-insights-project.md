@@ -381,22 +381,4 @@ func azure functionapp publish <your-function-app-name>
 - **Dimensional Modeling** - Star schema, fact/dimension tables
 - **Business Metrics** - KPIs, trends, competitive analysis
 
----
 
-## Lessons Learned
-
-### Successes
-- **Robust API integration** handles rate limits gracefully with 4-key rotation
-- **Content hashing** prevents unnecessary reprocessing (40%+ API call reduction)
-- **Atomic temp-table pattern** eliminates mid-batch failures and duplicates
-- **Salary annualization** enables accurate cross-title comparisons
-- **Materialized fact table** dramatically improves Power BI query performance
-
-### Challenges Overcome
-- **Reed API description truncation** (453 chars) → solved with detail endpoint fetching
-- **Rate limiting** (403 errors) → solved with 4-tier fallback and round-robin rotation
-- **Mid-batch failures** → solved with atomic temp-table pattern
-- **Skill normalization** → solved with alias mapping and regex patterns
-- **Salary comparison** → solved with annualization logic
-
----
