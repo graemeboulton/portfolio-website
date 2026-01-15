@@ -1,0 +1,33 @@
+# Metadata about this component, to be used in the CMS
+spec:
+  structures: []
+  label: Tableau Embed
+  description: Embeds a Tableau visualization
+  icon: image
+  tags: []
+
+# Defines the structure of this component
+blueprint:
+  title: ""
+  viz_url: ""
+  viz_id: ""
+  host_url: "https://public.tableau.com/"
+  site_root: ""
+  width: "1000"
+  height: "827"
+  tabs: false
+  toolbar: true
+  static_image: ""
+
+# Preview values
+preview:
+  title: "Tableau Dashboard"
+  viz_url: "AdventureWorks-PostPublish/Customers"
+  viz_id: "viz1768486181660"
+  host_url: "https://public.tableau.com/"
+  site_root: ""
+  width: "1000"
+  height: "827"
+  tabs: false
+  toolbar: true
+  static_image: ""
