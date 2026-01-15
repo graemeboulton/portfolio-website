@@ -1,14 +1,14 @@
 ---
 date: 2025-12-19 06:20:35 +0301
 title: Data engineering with Azure & Databricks
-subtitle: ETL using Azure and Databricks with a medallion architecture (In Progress)
+subtitle: ETL using Azure and Databricks with a medallion architecture
 image: '/images/data-engineering-project.svg'
 hide_image: true
 ---
 
 ## Project Overview
 
-When I decided on my first portfolio project — the [UK data job market insights](https://www.graemeboulton.com/project/job-insights-project-copy) — one of its main purposes was to better understand where demand and value existed in the market, and to use those insights to help guide my own upskilling.
+When I decided on my first portfolio project, the [UK data job market insights](https://www.graemeboulton.com/project/job-insights-project-copy) one of its main purposes was to better understand where demand and value existed in the market, and to use those insights to help guide my own upskilling.
 
 From a data engineering perspective, **Azure** appeared very dominant in the UK market, with services such as **Databricks** and **Synapse** mentioned consistently. From a BI perspective, **Tableau** emerged as the second most commonly requested tool. Based on this, I decided to incorporate all three into this project.
 
@@ -757,15 +757,6 @@ This orchestration design closely mirrors how production data pipelines are buil
 
 ---
 
-## Security & Governance
-
-- **Managed identities** used across Azure services
-- **Secrets** stored securely in Azure Key Vault
-- **RBAC** enforced via Microsoft Entra ID
-- **Security groups** used to manage access at scale.
-
----
-
 ## Serving & Reporting
 
 The curated Gold datasets are exposed via **Azure Synapse Analytics (Serverless SQL)** and consumed directly by **Tableau**.
@@ -775,4 +766,13 @@ Using a serverless SQL layer allows Tableau to query the data lake without dupli
 In contrast to my earlier BI-focused portfolio work, this project prioritises data engineering fundamentals — from ingestion through Bronze/Silver/Gold transformations to consumption in Tableau. The dashboard is deliberately functional, with minimal time spent on visual refinement, to keep the focus on data modelling, transformations, and cross-tool capability.
 
 {% include tableau/adventureworks-customers.html %}
+
+---
+
+## Security & Governance
+
+- **Managed identities** used across Azure services
+- **Secrets** stored securely in Azure Key Vault
+- **RBAC** enforced via Microsoft Entra ID
+- **Security groups** used to manage access at scale.
 
