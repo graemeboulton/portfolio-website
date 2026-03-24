@@ -1,6 +1,0 @@
-config {
-    type: "declaration",
-    database: dataform.projectConfig.vars.integrationDatabase,
-    schema: "xfuze_mattel_shopify",
-    name: "products_landing_table"
-}

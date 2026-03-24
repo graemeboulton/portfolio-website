@@ -1,6 +1,0 @@
-config {
-    type: "declaration",
-    database: 'xfuze-mattel-uat',
-    schema: "xfuze_predict_spring",
-    name: "xfuze_predict_spring_raw_ingestion"
-}

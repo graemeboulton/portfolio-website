@@ -1,6 +1,0 @@
-config {
-    type: "declaration",
-    database: 'xfuze-mattel-uat',
-    schema: "xfuze_mattel_shopify",
-    name: "products_new_fields_landing_table"
-}

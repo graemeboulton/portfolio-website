@@ -1,6 +1,0 @@
-config {
-    type: "declaration",
-    database: 'xfuze-mattel-uat',
-    schema: "xfuze_analytics",
-    name: "ga_raw_ingestion_table"
-}

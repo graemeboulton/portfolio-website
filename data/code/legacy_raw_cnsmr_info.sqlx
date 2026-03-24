@@ -1,6 +1,0 @@
-config {
-    type: "declaration",
-    database: 'xfuze-mattel-uat',
-    schema: "xfuze_consumer_master_backup",
-    name: "cnsmr_info_lower_silver"
-}

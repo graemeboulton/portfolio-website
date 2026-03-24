@@ -1,7 +1,0 @@
-config {
-    type: "declaration",
-    database: 'xfuze-mattel-uat',
-    schema: "xfuze_bubblehouse",
-    name: "bh_points_payload"
-}
-

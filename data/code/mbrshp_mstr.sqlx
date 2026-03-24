@@ -1,6 +1,0 @@
-config {
-    type: "declaration",
-    database: dataform.projectConfig.vars.integrationDatabase,
-    schema: "xfuze_consumer_master",
-    name: "mbrshp_mstr"
-}
