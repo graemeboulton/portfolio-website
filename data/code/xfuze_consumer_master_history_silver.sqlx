@@ -1,0 +1,333 @@
+config {
+  type: "table",
+  tags: ["customers", "daily"],
+  assertions: {
+    uniqueKey: ["ConsumerID", 'EventDateStart']},
+  schema: "xfuze_customer",
+  description: "customer data current and historical",
+  bigquery: {
+  partitionBy: "EventDateEnd",
+  clusterBy: ["ConsumerID"]
+  }
+}
+
+with membership_customers AS (
+  SELECT
+    COALESCE(m.cnsmr_id, l.cnsmr_id) AS CNSMR_ID,
+    MIN(LEAST(COALESCE(MBRSHP_STRT_DT, CURRENT_DATE()), COALESCE(LYLTY_STRT_DT, CURRENT_DATE()))) AS StartDate, -- all records have a start date, so current date should never be defaulted to, but will stop least function from breaking if an individual has mbr but not lyl or vice versa
+    MAX(GREATEST(COALESCE(MBRSHP_END_DT, CURRENT_DATE()+200), COALESCE(LYLTY_END_DT, CURRENT_DATE()+200))) AS FinalDate,
+  FROM ${ref("xfuze_consumer_master_membership_union")} m
+  FULL OUTER JOIN ${ref("xfuze_consumer_master_loyalty_union")} l 
+    ON m.CNSMR_ID = l.CNSMR_ID
+  GROUP BY ALL
+  HAVING FinalDate > CURRENT_DATE() - 1100 -- 3 year lookback for performance
+),
+
+-- Collect all significant event dates where customer status changes
+-- (memberships start/end, loyalty tiers change)
+all_event_dates AS (
+  SELECT DISTINCT dates
+  FROM (
+    SELECT MBRSHP_STRT_DT AS dates 
+    FROM ${ref("xfuze_consumer_master_membership_union")}
+    WHERE MBRSHP_STRT_DT >= CURRENT_DATE() - 1100
+    
+    UNION DISTINCT
+    SELECT MBRSHP_END_DT 
+    FROM ${ref("xfuze_consumer_master_membership_union")}
+    WHERE MBRSHP_END_DT >= CURRENT_DATE() - 1100 
+      AND MBRSHP_END_DT IS NOT NULL
+    
+    UNION DISTINCT
+    SELECT LYLTY_TIER_STRT_DT 
+    FROM ${ref("xfuze_consumer_master_loyalty_union")} 
+    WHERE LYLTY_TIER_STRT_DT >= CURRENT_DATE() - 1100
+    
+    UNION DISTINCT
+    SELECT LYLTY_END_DT 
+    FROM ${ref("xfuze_consumer_master_loyalty_union")} 
+    WHERE LYLTY_END_DT >= CURRENT_DATE() - 1100 
+      AND LYLTY_END_DT IS NOT NULL
+  )
+  WHERE dates IS NOT NULL
+),
+
+-- Aggregate point changes by customer and date from Bubblehouse system
+-- IsActivePointsChange = 1 indicates engaged customer activity (earning/spending points)
+-- vs. system adjustments or passive changes
+base_bubble AS (
+  SELECT 
+    subj_email AS email, 
+    DATE(chg_time) AS eventdate, 
+    SUM(pts_delta) AS pts_change,
+    MAX(is_active_points_change) AS IsActivePointsChange,
+    SUM(pts_earned) AS pts_earned,
+    SUM(pts_redeemed) AS pts_redeemed,
+  FROM ${ref("xfuze_bubblehouse_silver")}
+  GROUP BY ALL
+),
+
+-- Add previous event date for potential future use
+next_date_bubble AS (
+  SELECT
+    email,
+    COALESCE(
+      LAG(EventDate) OVER (PARTITION BY email ORDER BY EventDate ASC), 
+      DATE('1900-01-01')
+    ) AS PrevEventDate,
+    EventDate,
+    pts_change,
+    pts_redeemed,
+    pts_earned,
+    IsActivePointsChange
+  FROM base_bubble
+),
+
+-- Create driver table: one row per customer per event date
+-- This becomes the spine for all historical customer snapshots
+driver AS (
+  SELECT 
+    cnsmr_id,
+    dates AS EventDate
+  FROM all_event_dates
+  CROSS JOIN membership_customers
+  WHERE dates BETWEEN StartDate AND FinalDate
+  AND dates BETWEEN CURRENT_DATE()-1100 AND CURRENT_DATE()+1
+),
+
+-- CTE 1: Aggregate membership and loyalty data using MAX approach
+membership_loyalty_base AS (
+  SELECT
+    d.*,
+    cm.ConsumerEmail,
+    ConsumerBirthDate,
+    ConsumerGenderCD,
+    ConsumerChildInd,
+    AGAffiliationInd,
+    MattelAffiliationInd,   
+    AGMyAccountInd, 
+    MattelMyAccountInd,
+    GDPRInd,
+    AddressLine1,
+    AddressLine2,
+    City,
+    State,
+    Zip,
+    FirstName,
+    LastName,
+    PhoneNumber,
+    AcquisitionSourceType,
+    AcquisitionCampaign,
+    -- Aggregate memberships by brand using MAX
+    MAX(CASE WHEN mj.MBRSHP_TIER_CD = 'MastersUniverse' THEN mj.MBRSHP_ID END) AS MasterOfUniverseMembership_ID,
+    MAX(CASE WHEN mj.MBRSHP_TIER_CD = 'RLCOverdrive' THEN mj.MBRSHP_ID END) AS RLCMembership_ID,
+    MAX(CASE WHEN br.BRND_NM = 'HOTWHEELS-COLLECTORS' THEN mj.MBRSHP_ID END) AS HotWheelsCollectorMembership_ID,
+    MAX(CASE WHEN br.BRND_NM = 'BARBIE' THEN mj.MBRSHP_ID END) AS BarbieCollectorMembership_ID,
+    MAX(CASE WHEN mj. MBRSHP_TIER_CD = 'MonsterHigh' THEN mj.MBRSHP_ID END) AS MonsterHighMembership_ID,
+    
+    -- Get loyalty info (assuming single active loyalty per customer per date)
+    MAX(lj.LYLTY_TIER_CD) AS LYLTY_TIER_CD,
+
+    --- Flag if they were in loyalty programme but are now not
+    MAX(CASE WHEN COALESCE(LYLTY_END_DT, CURRENT_DATE()+1000) > d.EventDate THEN 1 ELSE 0 END) AS IsPreviousLoyaltyMember,
+    MAX(lj.LYLTY_STRT_DT) AS LYLTY_STRT_DT,
+    MAX(lj.LYLTY_END_DT) AS LYLTY_END_DT,
+    MAX(lj.LYLTY_PT_CNT) AS LYLTY_PT_CNT,
+    MAX(LYLTY_SRC_NAME) AS LYLTY_SRC_NAME,
+    
+    
+    -- Points data from next_date_bubble
+    MAX(bh.IsActivePointsChange) AS IsActivePointsChange,
+    MAX(bh.pts_redeemed) AS pts_redeemed,
+    MAX(bh.pts_earned) AS pts_earned,
+    MAX(bh.pts_change) AS pts_change
+    
+  FROM driver d
+  
+  LEFT JOIN ${ref("xfuze_consumer_master_base_info_silver")} cm
+    ON d.CNSMR_ID = cm.ConsumerID
+  
+  LEFT JOIN ${ref("xfuze_consumer_master_membership_union")}  mj
+    ON d.CNSMR_ID = mj.CNSMR_ID 
+    AND d.EventDate >= mj.MBRSHP_STRT_DT 
+    AND d.EventDate < mj.MBRSHP_END_DT
+
+  LEFT JOIN ${ref("xfuze_consumer_master_brand_union")} br
+  ON mj.Brnd_ID = br.BRND_ID
+    
+  LEFT JOIN ${ref("xfuze_consumer_master_loyalty_union")}  lj
+    ON d.CNSMR_ID = lj.CNSMR_ID 
+    AND d.EventDate >= DATE(lj.UPDT_DTTM)
+    AND d.EventDate < COALESCE(DATE(NEXT_LYLTY_UPDT_DTTM), CURRENT_DATE()+3)
+   -- AND d.EventDate < COALESCE(lylty_end_dt, '2099-01-01')
+    AND lj.LYLTY_ID IN (1, 2, 3)
+    
+  LEFT JOIN next_date_bubble bh
+    ON UPPER(cm.ConsumerEmail) = UPPER(bh.Email)
+    AND d.EventDate = bh.EventDate
+    
+  GROUP BY ALL
+),
+
+-- CTE 2: Apply window functions to match original output
+final AS (
+  SELECT
+    *,
+    CAST(
+      CONCAT(
+        EXTRACT(YEAR FROM EventDate), 
+        LPAD(CAST(EXTRACT(MONTH FROM EventDate) AS STRING), 2, '0')
+      ) AS INT64
+    ) AS FiscalYearMonth,
+    
+    -- Membership flags by brand (matching original logic)
+    CASE WHEN MasterOfUniverseMembership_ID IS NOT NULL THEN 'Y' ELSE 'N' END AS MasterOfUniverseMembership,
+    CASE WHEN RLCMembership_ID IS NOT NULL THEN 'Y' ELSE 'N' END AS RLCMembership,
+    CASE WHEN HotWheelsCollectorMembership_ID IS NOT NULL THEN 'Y' ELSE 'N' END AS HotWheelsCollectorMembership,
+    CASE WHEN BarbieCollectorMembership_ID IS NOT NULL THEN 'Y' ELSE 'N' END AS BarbieCollectorMembership,
+    CASE WHEN MonsterHighMembership_ID IS NOT NULL THEN 'Y' ELSE 'N' END AS MonsterHighMembership,
+    
+    -- Loyalty enrollment date (earliest date customer joined loyalty program)
+    MIN(LYLTY_STRT_DT) OVER (PARTITION BY CNSMR_ID) AS LoyaltyEnrollmentDate,
+    
+    -- Flag if there was any active point change in this month
+    COALESCE(
+      MAX(IsActivePointsChange) OVER (
+        PARTITION BY CNSMR_ID, DATE_TRUNC(EventDate, MONTH)
+      ), 
+      0
+    ) AS IsActivePointsChangeMonth,
+
+    CASE WHEN LYLTY_TIER_CD != LAG(LYLTY_TIER_CD) OVER (PARTITION BY CNSMR_ID ORDER BY EventDate ASC) THEN 'Y' ELSE 'N' END AS IsTierChange,
+    
+    LYLTY_PT_CNT AS AGLoyaltyPointCount,
+
+    LYLTY_SRC_NAME as LoyaltySourceName,
+    COALESCE(pts_redeemed, 0) AS PointsRedeemed,
+    COALESCE(pts_earned, 0) AS PointsEarned,
+    COALESCE(LYLTY_TIER_CD, 'None') AS CurrentAGLoyaltyTier,
+    COALESCE(LYLTY_PT_CNT, 0) AS CurrentAGLoyaltyPointCount,
+    
+  FROM membership_loyalty_base
+),
+
+
+-- Aggregate to one row per consumer per month
+-- Takes the earliest event date in each month as the representative date
+grouped_consumer AS (
+  SELECT
+    MIN(EventDate) AS EventDate,
+    FiscalYearMonth,
+    CNSMR_ID AS ConsumerID,
+    ConsumerEmail,
+    ConsumerBirthDate,
+    ConsumerGenderCD,
+    ConsumerChildInd,
+    AGAffiliationInd,
+    MattelAffiliationInd,
+    AGMyAccountInd, 
+    MattelMyAccountInd,
+    GDPRInd,
+    AddressLine1,
+    AddressLine2,
+    City,
+    State,
+    Zip,
+    FirstName,
+    LastName,
+    PhoneNumber,
+    AcquisitionSourceType,
+    AcquisitionCampaign,
+    MasterOfUniverseMembership,
+    HotWheelsCollectorMembership,
+    RLCMembership,
+    BarbieCollectorMembership,
+    MonsterHighMembership,
+    AGLoyaltyPointCount,
+    LoyaltySourceName,
+    IsPreviousLoyaltyMember,
+    IsTierChange,
+    
+    -- Flag if this is the month the customer enrolled in loyalty
+    CASE 
+      WHEN DATE_TRUNC(LoyaltyEnrollmentDate, MONTH) = DATE_TRUNC(EventDate, MONTH) 
+      THEN 1 
+      ELSE 0 
+    END AS IsLoyaltyEnrollmentMonth,
+    
+    IsActivePointsChangeMonth,
+    CurrentAGLoyaltyTier,
+    CurrentAGLoyaltyPointCount,
+    SUM(PointsRedeemed) AS PointsRedeemed,
+    SUM(PointsEarned) AS PointsEarned
+  FROM final
+  GROUP BY ALL
+),
+
+-- Create time periods: add end dates for each event period
+-- Each row represents a time period from EventDateStart to EventDateEnd (exclusive)
+event_dates AS (
+  SELECT
+    -- Next event date becomes the end of this period
+    COALESCE(
+      LEAD(EventDate) OVER (PARTITION BY ConsumerID ORDER BY EventDate ASC), 
+      DATE('2099-01-01')
+    ) AS EventDateEnd,
+    COALESCE(
+      LEAD(FiscalYearMonth) OVER (PARTITION BY ConsumerID ORDER BY EventDate ASC), 
+      209901
+    ) AS FiscalYearMonthEnd,
+    
+    -- Flag the last event in each month for easy month-end reporting
+    CASE 
+      WHEN RANK() OVER (PARTITION BY ConsumerID, FiscalYearMonth ORDER BY EventDate DESC) = 1 
+      THEN 'Y' 
+      ELSE 'N' 
+    END AS MonthEndEvent,
+    
+    * 
+  FROM grouped_consumer
+)
+
+-- Final output with renamed columns for clarity
+SELECT
+  ConsumerID,
+  ConsumerEmail,
+  EventDate AS EventDateStart,
+  EventDateEnd,
+  FiscalYearMonth AS FiscalYearMonthStart,
+  FiscalYearMonthEnd,
+  MonthEndEvent,
+  ConsumerBirthDate,
+  ConsumerGenderCD,
+  ConsumerChildInd,
+  AGAffiliationInd,
+  MattelAffiliationInd,
+  AGMyAccountInd, 
+  MattelMyAccountInd,
+  GDPRInd,
+  AddressLine1,
+  AddressLine2,
+  City,
+  State,
+  Zip,
+  FirstName,
+  LastName,
+  PhoneNumber,
+  AcquisitionSourceType,
+  AcquisitionCampaign,
+  MasterOfUniverseMembership,
+  HotWheelsCollectorMembership,
+  RLCMembership,
+  BarbieCollectorMembership,
+  MonsterHighMembership,
+  LoyaltySourceName,
+  IsLoyaltyEnrollmentMonth,
+  IsActivePointsChangeMonth,
+  CurrentAGLoyaltyTier AS AGLoyaltyTier,
+  CurrentAGLoyaltyTier,
+  AGLoyaltyPointCount,
+  CurrentAGLoyaltyPointCount,
+  PointsRedeemed,
+  PointsEarned
+FROM event_dates

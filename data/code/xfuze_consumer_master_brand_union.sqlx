@@ -1,0 +1,61 @@
+config {
+  type: "table",
+  tags: ["customers", "daily"],
+  assertions: {
+    uniqueKey: ["BRND_ID"]},
+  schema: "xfuze_customer",
+  description: "customer data current and historical",
+}
+
+
+
+WITH UNIONED AS 
+(
+SELECT
+
+BRND_ID,
+BRND_NM,
+PRNT_BRND_CD,
+CRTD_BY,
+CRTD_DTTM,
+UPDT_BY,
+UPDT_DTTM,
+message_id,
+CAST(publish_time AS TIMESTAMP) as publish_time,
+attributes,
+subscription_name
+
+FROM ${ref('xfuze_consumer_master', 'brnd_mstr_lower_silver')}
+
+
+UNION ALL 
+
+
+SELECT
+
+BRND_ID,
+BRND_NM,
+PRNT_BRND_CD,
+CRTD_BY,
+CRTD_DTTM,
+UPDT_BY,
+UPDT_DTTM,
+message_id,
+CAST(publish_time AS TIMESTAMP) as publish_time,
+attributes,
+subscription_name
+
+FROM ${ref('xfuze_consumer_master_backup', 'brnd_mstr_lower_silver')}
+)
+
+
+,latest AS (
+  SELECT
+    ARRAY_AGG(e ORDER BY publish_time DESC, UPDT_DTTM DESC LIMIT 1)[OFFSET(0)].*
+  FROM Unioned e
+  GROUP BY e.BRND_ID
+)
+
+SELECT
+*
+FROM latest

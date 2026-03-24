@@ -1,0 +1,6 @@
+config {
+    type: "declaration",
+    database: 'xfuze-mattel-uat',
+    schema: "xfuze_blueconic",
+    name: "sm_membership_history_membership_info"
+}

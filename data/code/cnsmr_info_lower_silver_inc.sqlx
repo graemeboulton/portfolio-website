@@ -1,0 +1,37 @@
+config {
+  type: "incremental",
+  schema: "xfuze_staging",
+  description: "Consumer information unpacked from raw Pub/Sub messages",
+  tags: ["customers", "daily"],
+  bigquery: {
+    partitionBy: "DATE(publish_time)",
+    clusterBy: ["CNSMR_ID"]
+  }
+}
+
+SELECT
+  SAFE_CAST(JSON_VALUE(data, '$.CNSMR_ID') AS INT64) AS CNSMR_ID,
+  SAFE.PARSE_DATE('%Y-%m-%d', JSON_VALUE(data, '$.CNSMR_BRTH_DT')) AS CNSMR_BRTH_DT,
+  JSON_VALUE(data, '$.CNSMR_GNDR_CD') AS CNSMR_GNDR_CD,
+  JSON_VALUE(data, '$.CNSMR_CHLD_IND') AS CNSMR_CHLD_IND,
+  JSON_VALUE(data, '$.AG_AFLTN_IND') AS AG_AFLTN_IND,
+  JSON_VALUE(data, '$.MTTL_AFLTN_IND') AS MTTL_AFLTN_IND,
+  JSON_VALUE(data, '$.EMAIL_ADDR_VAL') AS EMAIL_ADDR_VAL,
+  JSON_VALUE(data, '$.AG_MYACCT_IND') AS AG_MYACCT_IND,
+  JSON_VALUE(data, '$.MTTL_MYACCT_IND') AS MTTL_MYACCT_IND,
+  JSON_VALUE(data, '$.MTTL_LOGIN_MYACCT_IND') AS MTTL_LOGIN_MYACCT_IND,
+  JSON_VALUE(data, '$.GEO_ZIP_CD') AS GEO_ZIP_CD,
+  JSON_VALUE(data, '$.ACTV_IND') AS ACTV_IND,
+  JSON_VALUE(data, '$.GDPR_IND') AS GDPR_IND,
+  JSON_VALUE(data, '$.DP_SHR_IND') AS DP_SHR_IND,
+  JSON_VALUE(data, '$.DP_SHR_IND_DT') AS DP_SHR_IND_DT,
+  JSON_VALUE(data, '$.CRTD_BY') AS CRTD_BY,
+  JSON_VALUE(data, '$.CRTD_DTTM') AS CRTD_DTTM,
+  JSON_VALUE(data, '$.UPDT_BY') AS UPDT_BY,
+  JSON_VALUE(data, '$.UPDT_DTTM') AS UPDT_DTTM,
+  subscription_name,
+  message_id,
+  publish_time,
+  TO_JSON_STRING(attributes) AS attributes
+FROM ${ref('xfuze_consumer_master', 'raw_cnsmr_info')}
+${ when(incremental(), `WHERE publish_time > (SELECT MAX(publish_time) FROM ${self()})`) }

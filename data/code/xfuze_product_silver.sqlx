@@ -1,0 +1,105 @@
+config {
+  type: "incremental",
+  tags: ["products", "daily"],
+  schema: "xfuze_product",
+  description: "sales orders cleaned with business logic applied",
+  uniqueKey: ["SkuCode"],
+  bigquery: {
+    partitionBy: "DATE(ProductUpdatedAt)",
+    clusterBy: ["ProductCode"]
+  }
+}
+
+pre_operations {
+  ${when(incremental(), 
+    "DECLARE max_load_date DATE DEFAULT (SELECT COALESCE(MAX(DATE(BQLoadTimeStamp)), DATE('2020-01-01')) FROM " + self() + " WHERE DATE(BQLoadTimeStamp) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY));", 
+    ""
+  )}
+}
+
+WITH final as (
+SELECT DISTINCT
+Locale,
+Storefront,
+ProductID as ProductCode,
+pv.ProductVariantID as SkuCode,
+pv.ProductVariantSKU as VariantSKU,
+ProductTitle,
+Type,
+ProductCreatedAt,
+ProductUpdatedAt,
+ProductStatus,
+ProductDescription,
+COALESCE(pg.Category, pl.Category.Name, 
+  (SELECT pt.value FROM UNNEST(ProductTags) pt WHERE pt.key = 'Category' LIMIT 1)) as Category,
+
+CASE 
+    -- Membership
+    WHEN pg.Category = 'Membership' 
+         OR pl.Category.Name = 'Membership' 
+         OR pg.Type = 'Membership' 
+    THEN 'MEMBERSHIP'
+
+    -- pg.StType (if it exists and isn't null)
+    WHEN pg.StType IS NOT NULL 
+    THEN UPPER(pg.StType)
+
+    -- Product Tags ('Drop' -> 'Flash')
+  --  WHEN EXISTS (
+   --     SELECT 1 FROM UNNEST(ProductTags) pt 
+   --     WHERE pt.key = 'Type' AND pt.value = 'Drop'
+   -- ) THEN 'FLASH'
+
+    -- Evergreen
+  --  ELSE 'EVERGREEN'
+  ELSE 'Unknown'
+END AS DropProductType,
+
+pg.Type as ProductType, 
+COALESCE(
+  PG.Brand,
+  CASE 
+    WHEN (SELECT pt.value FROM UNNEST(ProductTags) pt WHERE pt.key = 'Brand' LIMIT 1) = 'Hot Wheels Collectors' THEN 'Hot Wheels'
+    WHEN (SELECT pt.value FROM UNNEST(ProductTags) pt WHERE pt.key = 'Brand' LIMIT 1) = 'Barbie Signature' THEN 'Barbie'
+    WHEN (SELECT pt.value FROM UNNEST(ProductTags) pt WHERE pt.key = 'Brand' LIMIT 1) = 'Barbie the Movie' THEN 'Barbie the Movie'
+    WHEN (SELECT pt.value FROM UNNEST(ProductTags) pt WHERE pt.key = 'Brand' LIMIT 1) IN ('Little People Collector', 'Little People Collectors') THEN 'Little People'
+    WHEN (SELECT pt.value FROM UNNEST(ProductTags) pt WHERE pt.key = 'Brand' LIMIT 1) = 'Matchbox Collector' THEN 'Matchbox'
+    WHEN (SELECT pt.value FROM UNNEST(ProductTags) pt WHERE pt.key = 'Brand' LIMIT 1) = 'Mighty Max' THEN 'MightyMax'
+    WHEN (SELECT pt.value FROM UNNEST(ProductTags) pt WHERE pt.key = 'Brand' LIMIT 1) = 'MOTU Collectors' THEN 'MOTU'
+    WHEN (SELECT pt.value FROM UNNEST(ProductTags) pt WHERE pt.key = 'Brand' LIMIT 1) = 'Polly Pocket Collector' THEN 'Polly Pocket'
+    WHEN (SELECT pt.value FROM UNNEST(ProductTags) pt WHERE pt.key = 'Brand' LIMIT 1) = 'Disney' THEN 'Disney Doll'
+    ELSE (SELECT pt.value FROM UNNEST(ProductTags) pt WHERE pt.key = 'Brand' LIMIT 1)
+  END
+) AS Brand,
+(SELECT pt.value FROM UNNEST(ProductTags) pt WHERE pt.key = 'DollType' LIMIT 1) as DollType,
+(SELECT pt.ProductImageSrc FROM UNNEST(ProductImages) pt LIMIT 1) as ProductImage,
+CASE WHEN PG.Brand = 'Bespoke' THEN TRUE ELSE FALSE END AS BespokeFlag,
+--pc.Handle, 
+--pc.Title,
+IF(CONTAINS_SUBSTR(ProductTitle, 'Membership'), True, False) as IsMembership,
+pv.ProductVariantPrice as ProductPrice,
+pv.InventoryItem.IsTracked,
+pv.InventoryItem.RequiresShipping,
+pv.InventoryItem.measurement.weight.value as SkuWeight,
+pv.InventoryItem.measurement.weight.unit as SkuWeightUnit,
+ProductTotalInventory,
+BQLoadTimeStamp
+FROM ${ref("product_lower_silver_union")} pl, 
+UNNEST(ProductVariants) pv 
+--UNNEST(ProductCollections) pc
+
+LEFT JOIN ${ref("xt_products")}  pg
+ON pv.ProductVariantSKU = array_first(SPLIT(TRIM(pg.sku), ' -')) 
+WHERE 1 = 1 
+${when(incremental(), `AND DATE(BQLoadTimeStamp) > DATE_SUB(max_load_date, INTERVAL 2 DAY)`)}
+)
+
+
+,LATEST AS (
+  SELECT
+    ARRAY_AGG(e ORDER BY e.ProductUpdatedAt DESC, BQLoadTimeStamp DESC LIMIT 1)[OFFSET(0)].*
+  FROM final e
+  GROUP BY e.SkuCode
+)
+
+SELECT * FROM LATEST

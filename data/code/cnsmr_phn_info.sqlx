@@ -1,0 +1,8 @@
+config {
+    type: "declaration",
+    database: 'xfuze-mattel-uat',
+    schema: "xfuze_consumer_master",
+    name: "cnsmr_phn_info"
+}
+
+

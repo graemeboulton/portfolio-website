@@ -1,0 +1,332 @@
+config {
+  type: "incremental",
+  tags: ["sales_orders", "daily"],
+  schema: "xfuze_staging",
+  description: "Orders data with line items from Predict Spring landing table",
+  uniqueKey: ["PRIMARY_KEY"],
+  assertions: {
+    uniqueKey: ["PRIMARY_KEY"]},
+  bigquery: {
+    partitionBy: "DATE(publish_time)"
+  }
+}
+
+WITH parsed_layers AS (
+    SELECT 
+        message_id,
+        publish_time,
+        subscription_name,
+        SAFE.PARSE_JSON(data) as root,
+        -- This extracts the stringified JSON from the 'PAYLOAD' key and parses it into a JSON object
+        SAFE.PARSE_JSON(JSON_VALUE(SAFE.PARSE_JSON(data), '$.PAYLOAD')) as payload
+    FROM  ${ref("xfuze_predict_spring_raw_ingestion")}
+)
+, alllines as (
+SELECT
+    message_id,
+    publish_time,
+    subscription_name,
+    CONCAT(JSON_VALUE(root.ORDER_ID),JSON_VALUE(root.ORDER_STATUS)) as PRIMARY_KEY,
+    SAFE_CAST(JSON_VALUE(root.LOAD_DATE) AS TIMESTAMP) as LOAD_DATE,
+    JSON_VALUE(root.OPERATOR_ID) as OPERATOR_ID,
+    JSON_VALUE(root.ORDER_ID) as ORDER_ID,
+    JSON_VALUE(root.ORDER_STATUS) as ORDER_STATUS,
+    JSON_VALUE(root.REGISTER_ID) as REGISTER_ID,
+    JSON_VALUE(root.SHIPPING_METHOD_ID) as SHIPPING_METHOD_ID,
+    JSON_VALUE(root.STORE_ID) as STORE_ID,
+    JSON_VALUE(root.TAX_SUBTOTAL) as TAX_SUBTOTAL,
+    JSON_VALUE(root.TOTAL_AMOUNT) as TOTAL_AMOUNT,
+    JSON_VALUE(root.TRANSACTION_DATE) as TRANSACTION_DATE,
+    JSON_VALUE(root.TRANSACTION_ID) as TRANSACTION_ID,
+    JSON_VALUE(root.TRANSACTION_TYPE) as TRANSACTION_TYPE,
+
+    -- PAYLOAD SCALARS
+    SAFE_CAST(JSON_VALUE(payload.availableDate) AS INT64) as availableDate,
+    JSON_VALUE(payload.cartId) as cartId,
+    JSON_VALUE(payload.creationDate) as creationDate,
+    COALESCE(SAFE_CAST(JSON_VALUE(payload.discount) AS FLOAT64), 0.0) as discount,
+    COALESCE(SAFE_CAST(JSON_VALUE(payload.editOrderMode) AS BOOL), FALSE) as editOrderMode,
+    JSON_VALUE(payload.env) as env,
+    JSON_VALUE(payload.fulfillmentType) as fulfillmentType,
+    JSON_VALUE(payload.installationId) as installationId,
+    COALESCE(SAFE_CAST(JSON_VALUE(payload.isSplitCart) AS BOOL), FALSE) as isSplitCart,
+    SAFE_CAST(JSON_VALUE(payload.lastDateToReturnTimeStamp) AS INT64) as lastDateToReturnTimeStamp,
+    COALESCE(SAFE_CAST(JSON_VALUE(payload.noReceiptReturns) AS BOOL), FALSE) as noReceiptReturns,
+    COALESCE(SAFE_CAST(JSON_VALUE(payload.offlineMode) AS BOOL), FALSE) as offlineMode,
+    SAFE_CAST(JSON_VALUE(payload.orderDate) AS INT64) as orderDate,
+    JSON_VALUE(payload.orderId) as orderId_payload,
+    JSON_VALUE(payload.orderSource) as orderSource,
+    JSON_VALUE(payload.orderStatus) as orderStatus_payload,
+    JSON_VALUE(payload.orderStatusText) as orderStatusText,
+    COALESCE(SAFE_CAST(JSON_VALUE(payload.orderSubTotal) AS FLOAT64), 0.0) as orderSubTotal,
+    COALESCE(SAFE_CAST(JSON_VALUE(payload.partiallyPaid) AS BOOL), FALSE) as partiallyPaid,
+    JSON_VALUE(payload.paymentSource) as paymentSource,
+    COALESCE(SAFE_CAST(JSON_VALUE(payload.rewardAmount) AS FLOAT64), 0.0) as rewardAmount,
+    JSON_VALUE(payload.status) as status,
+    COALESCE(SAFE_CAST(JSON_VALUE(payload.taxExemption) AS FLOAT64), 0.0) as taxExemption,
+    COALESCE(SAFE_CAST(JSON_VALUE(payload.taxSubTotal) AS FLOAT64), 0.0) as taxSubTotal_payload,
+    COALESCE(SAFE_CAST(JSON_VALUE(payload.taxableAmount) AS FLOAT64), 0.0) as taxableAmount,
+    COALESCE(SAFE_CAST(JSON_VALUE(payload.totalAmount) AS FLOAT64), 0.0) as totalAmount_payload,
+    COALESCE(SAFE_CAST(JSON_VALUE(payload.totalAssembledQty) AS INT64), 0) as totalAssembledQty,
+    COALESCE(SAFE_CAST(JSON_VALUE(payload.totalBoxedQty) AS INT64), 0) as totalBoxedQty,
+    JSON_VALUE(payload.twoPhaseCommitReferenceId) as twoPhaseCommitReferenceId,
+    SAFE_CAST(JSON_VALUE(payload.updateDate) AS INT64) as updateDate,
+
+    STRUCT(JSON_VALUE(payload.children.dummy) as dummy) as children,
+    
+    -- FIXED ARRAYS
+    ARRAY(SELECT COALESCE(JSON_VALUE(x), TO_JSON_STRING(x)) FROM UNNEST(JSON_QUERY_ARRAY(payload.coupons)) x) as coupons,
+    ARRAY(SELECT COALESCE(JSON_VALUE(x), TO_JSON_STRING(x)) FROM UNNEST(JSON_QUERY_ARRAY(payload.merchantPromotionIds)) x) as merchantPromotionIds,
+    ARRAY(SELECT COALESCE(JSON_VALUE(x), TO_JSON_STRING(x)) FROM UNNEST(JSON_QUERY_ARRAY(payload.notesList)) x) as notesList,
+    ARRAY(SELECT COALESCE(JSON_VALUE(x), TO_JSON_STRING(x)) FROM UNNEST(JSON_QUERY_ARRAY(payload.orderFiscalData)) x) as orderFiscalData,
+    ARRAY(SELECT COALESCE(JSON_VALUE(x), TO_JSON_STRING(x)) FROM UNNEST(JSON_QUERY_ARRAY(payload.productPriceAdjustments)) x) as productPriceAdjustments,
+    ARRAY(SELECT COALESCE(JSON_VALUE(x), TO_JSON_STRING(x)) FROM UNNEST(JSON_QUERY_ARRAY(payload.refundPaymentDetails)) x) as refundPaymentDetails,
+    ARRAY(SELECT COALESCE(JSON_VALUE(x), TO_JSON_STRING(x)) FROM UNNEST(JSON_QUERY_ARRAY(payload.returnProductList)) x) as returnProductList,
+    ARRAY(SELECT COALESCE(JSON_VALUE(x), TO_JSON_STRING(x)) FROM UNNEST(JSON_QUERY_ARRAY(payload.taxExemptions)) x) as taxExemptions,
+
+    STRUCT(
+        JSON_VALUE(payload.orderAttribution.registerTransactionId) as registerTransactionId,
+        JSON_VALUE(payload.orderAttribution.storeRegisterId) as storeRegisterId
+    ) as orderAttribution,
+
+    JSON_VALUE(payload.shippingCarrier) as shippingCarrier,
+    JSON_VALUE(payload.shippingDescription) as shippingDescription,
+    JSON_VALUE(payload.shippingName) as shippingName,
+    JSON_VALUE(payload.shippingServiceLevel) as shippingServiceLevel,
+    STRUCT(COALESCE(SAFE_CAST(JSON_VALUE(payload.shippingAddress.preferred) AS BOOL), FALSE) as preferred) as shippingAddress,
+
+    STRUCT(
+        JSON_VALUE(payload.store.addressLine1) as addressLine1,
+        JSON_VALUE(payload.store.addressLine2) as addressLine2,
+        COALESCE(SAFE_CAST(JSON_VALUE(payload.store.allowTryAtStore) AS BOOL), FALSE) as allowTryAtStore,
+        JSON_VALUE(payload.store.city) as city,
+        JSON_VALUE(payload.store.countryCode) as countryCode,
+        SAFE_CAST(JSON_VALUE(payload.store.latitude) AS FLOAT64) as latitude,
+        SAFE_CAST(JSON_VALUE(payload.store.longitude) AS FLOAT64) as longitude,
+        JSON_VALUE(payload.store.mainPhone) as mainPhone,
+        JSON_VALUE(payload.store.name) as name,
+        JSON_VALUE(payload.store.phone) as phone,
+        JSON_VALUE(payload.store.postalCode) as postalCode,
+        JSON_VALUE(payload.store.productScanCodeType) as productScanCodeType,
+        JSON_VALUE(payload.store.state) as state,
+        JSON_VALUE(payload.store.storeId) as storeId,
+        JSON_VALUE(payload.store.storeType) as storeType,
+        JSON_VALUE(payload.store.timeZoneId) as timeZoneId,
+        ARRAY(
+            SELECT AS STRUCT
+                JSON_VALUE(h, '$.day') as day,
+                JSON_VALUE(h, '$.open') as open,
+                JSON_VALUE(h, '$.close') as close
+            FROM UNNEST(JSON_QUERY_ARRAY(payload.store.hours)) h
+        ) as hours
+    ) as store,
+
+    JSON_VALUE(payload.storeAssociateId) as storeAssociateId,
+    JSON_VALUE(payload.storeId) as storeId_payload,
+
+    -- DEEP NESTED ARRAYS
+    ARRAY(
+        SELECT AS STRUCT
+            JSON_VALUE(log.appTransactionId) as appTransactionId,
+            JSON_VALUE(log.expiryDate) as expiryDate,
+            JSON_VALUE(log.installationId) as installationId,
+            JSON_VALUE(log.orderId) as orderId,
+            COALESCE(SAFE_CAST(JSON_VALUE(log.receiptPrintCount) AS INT64), 0) as receiptPrintCount,
+            JSON_VALUE(log.s3KeyTransactionData) as s3KeyTransactionData,
+            JSON_VALUE(log.storeId) as storeId,
+            JSON_VALUE(log.transactionDate) as transactionDate,
+            JSON_VALUE(log.transactionId) as transactionId,
+            JSON_VALUE(log.transactionStartDate) as transactionStartDate,
+            JSON_VALUE(log.transactionType) as transactionType,
+            
+            STRUCT(
+                COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.noReceiptReturns) AS BOOL), FALSE) as noReceiptReturns,
+                COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.numberOfLineItems) AS INT64), 0) as numberOfLineItems,
+                COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.offlineMode) AS BOOL), FALSE) as offlineMode,
+                JSON_VALUE(log.transactionData.orderId) as orderId,
+                JSON_VALUE(log.transactionData.receiptId) as receiptId,
+                COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.receiptPrintCount) AS INT64), 0) as receiptPrintCount,
+                JSON_VALUE(log.transactionData.transactionId) as transactionId,
+                SAFE_CAST(JSON_VALUE(log.transactionData.transactionTimeStamp) AS INT64) as transactionTimeStamp,
+                JSON_VALUE(log.transactionData.transactionType) as transactionType,
+
+                STRUCT(
+                    JSON_VALUE(log.transactionData.store.addressLine1) as addressLine1,
+                    JSON_VALUE(log.transactionData.store.addressLine2) as addressLine2,
+                    COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.store.allowTryAtStore) AS BOOL), FALSE) as allowTryAtStore,
+                    JSON_VALUE(log.transactionData.store.city) as city,
+                    JSON_VALUE(log.transactionData.store.countryCode) as countryCode,
+                    SAFE_CAST(JSON_VALUE(log.transactionData.store.latitude) AS FLOAT64) as latitude,
+                    SAFE_CAST(JSON_VALUE(log.transactionData.store.longitude) AS FLOAT64) as longitude,
+                    JSON_VALUE(log.transactionData.store.mainPhone) as mainPhone,
+                    JSON_VALUE(log.transactionData.store.name) as name,
+                    JSON_VALUE(log.transactionData.store.phone) as phone,
+                    JSON_VALUE(log.transactionData.store.postalCode) as postalCode,
+                    JSON_VALUE(log.transactionData.store.productScanCodeType) as productScanCodeType,
+                    JSON_VALUE(log.transactionData.store.state) as state,
+                    JSON_VALUE(log.transactionData.store.storeId) as storeId,
+                    JSON_VALUE(log.transactionData.store.storeType) as storeType,
+                    JSON_VALUE(log.transactionData.store.timeZoneId) as timeZoneId
+                ) as store,
+
+                STRUCT(
+                    COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.storeAssociate.firstLoginPasswordReset) AS BOOL), FALSE) as firstLoginPasswordReset,
+                    JSON_VALUE(log.transactionData.storeAssociate.firstName) as firstName,
+                    COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.storeAssociate.incorrectLoginCount) AS INT64), 0) as incorrectLoginCount,
+                    JSON_VALUE(log.transactionData.storeAssociate.lastName) as lastName,
+                    COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.storeAssociate.merchantPasswordFlag) AS BOOL), FALSE) as merchantPasswordFlag,
+                    JSON_VALUE(log.transactionData.storeAssociate.storeAssociateID) as storeAssociateID,
+                    COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.storeAssociate.storeAssociatePasswordFlag) AS BOOL), FALSE) as storeAssociatePasswordFlag,
+                    COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.storeAssociate.storeAssociateSecretFlag) AS BOOL), FALSE) as storeAssociateSecretFlag
+                ) as storeAssociate,
+
+                STRUCT(
+                    JSON_VALUE(log.transactionData.storeAttribution.activePaymentReader) as activePaymentReader,
+                    JSON_VALUE(log.transactionData.storeAttribution.eventId) as eventId,
+                    SAFE_CAST(JSON_VALUE(log.transactionData.storeAttribution.eventTimeStamp) AS INT64) as eventTimeStamp,
+                    SAFE_CAST(JSON_VALUE(log.transactionData.storeAttribution.secondsFromGMT) AS INT64) as secondsFromGMT,
+                    JSON_VALUE(log.transactionData.storeAttribution.storeAssociateId) as storeAssociateId,
+                    JSON_VALUE(log.transactionData.storeAttribution.storeAssociateRole) as storeAssociateRole,
+                    JSON_VALUE(log.transactionData.storeAttribution.storeId) as storeId,
+                    JSON_VALUE(log.transactionData.storeAttribution.storeRegisterId) as storeRegisterId,
+                    JSON_VALUE(log.transactionData.storeAttribution.tillId) as tillId,
+                    JSON_VALUE(log.transactionData.storeAttribution.tillSessionId) as tillSessionId,
+                    JSON_VALUE(log.transactionData.storeAttribution.transactionId) as transactionId
+                ) as storeAttribution,
+
+                STRUCT(
+                    STRUCT(
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.netSummary.amountToBeCharged) AS FLOAT64), 0.0) as amountToBeCharged,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.netSummary.discount) AS FLOAT64), 0.0) as discount,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.netSummary.inStoreTotal) AS FLOAT64), 0.0) as inStoreTotal,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.netSummary.netSubTotal) AS FLOAT64), 0.0) as netSubTotal,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.netSummary.subTotal) AS FLOAT64), 0.0) as subTotal,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.netSummary.tax) AS FLOAT64), 0.0) as tax,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.netSummary.taxExemption) AS FLOAT64), 0.0) as taxExemption,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.netSummary.total) AS FLOAT64), 0.0) as total,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.netSummary.transactionDiscountAmount) AS FLOAT64), 0.0) as transactionDiscountAmount,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.netSummary.valueAddedTax) AS FLOAT64), 0.0) as valueAddedTax
+                    ) as netSummary,
+                    STRUCT(
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.refundSummary.netSubTotal) AS FLOAT64), 0.0) as netSubTotal,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.refundSummary.subTotal) AS FLOAT64), 0.0) as subTotal,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.refundSummary.tax) AS FLOAT64), 0.0) as tax,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.refundSummary.taxExemption) AS FLOAT64), 0.0) as taxExemption,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.refundSummary.total) AS FLOAT64), 0.0) as total,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.refundSummary.valueAddedTax) AS FLOAT64), 0.0) as valueAddedTax
+                    ) as refundSummary,
+                    STRUCT(
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.saleSummary.netSubTotal) AS FLOAT64), 0.0) as netSubTotal,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.saleSummary.subTotal) AS FLOAT64), 0.0) as subTotal,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.saleSummary.tax) AS FLOAT64), 0.0) as tax,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.saleSummary.taxExemption) AS FLOAT64), 0.0) as taxExemption,
+                        COALESCE(SAFE_CAST(JSON_VALUE(log.transactionData.summary.saleSummary.total) AS FLOAT64), 0.0) as total
+                    ) as saleSummary
+                ) as summary,
+
+                ARRAY(
+                    SELECT AS STRUCT
+                        JSON_VALUE(p.orderItemId) as orderItemId,
+                        JSON_VALUE(p.productId) as productId,
+                        JSON_VALUE(p.name) as name,
+                        JSON_VALUE(p.color) as color,
+                        JSON_VALUE(p.size) as size,
+                        JSON_VALUE(p.gtin) as gtin,
+                        JSON_VALUE(p.imageURL) as imageURL,
+                        COALESCE(SAFE_CAST(JSON_VALUE(p.price) AS FLOAT64), 0.0) as price,
+                        COALESCE(SAFE_CAST(JSON_VALUE(p.quantity) AS INT64), 0) as quantity,
+                        COALESCE(SAFE_CAST(JSON_VALUE(p.subTotal) AS FLOAT64), 0.0) as subTotal,
+                        COALESCE(SAFE_CAST(JSON_VALUE(p.tax) AS FLOAT64), 0.0) as tax,
+                        COALESCE(SAFE_CAST(JSON_VALUE(p.total) AS FLOAT64), 0.0) as total,
+                        JSON_VALUE(p.fulfillmentType) as fulfillmentType,
+                        JSON_VALUE(p.fulfillmentSubType) as fulfillmentSubType,
+                        JSON_VALUE(p.omniFulfillmentType) as omniFulfillmentType,
+                        JSON_VALUE(p.productClass) as productClass,
+                        JSON_VALUE(p.productCondition) as productCondition,
+                        COALESCE(SAFE_CAST(JSON_VALUE(p.isVirtual) AS BOOL), FALSE) as isVirtual,
+                        COALESCE(SAFE_CAST(JSON_VALUE(p.isReturnRelated) AS BOOL), FALSE) as isReturnRelated,
+                        JSON_VALUE(p.variantGroupId) as variantGroupId,
+                        JSON_VALUE(p.salesAssociateId) as salesAssociateId,
+                        COALESCE(SAFE_CAST(JSON_VALUE(p.fulfillmentTypeChanged) AS BOOL), FALSE) as fulfillmentTypeChanged
+                    FROM UNNEST(JSON_QUERY_ARRAY(log.transactionData.productList)) p
+                ) as productList,
+
+                ARRAY(
+                    SELECT AS STRUCT
+                        JSON_VALUE(t.chargeType) as chargeType,
+                        JSON_VALUE(t.countryCode) as countryCode,
+                        JSON_VALUE(t.displayTaxName) as displayTaxName,
+                        JSON_VALUE(t.printTaxName) as printTaxName,
+                        COALESCE(SAFE_CAST(JSON_VALUE(t.taxAmount) AS FLOAT64), 0.0) as taxAmount,
+                        JSON_VALUE(t.taxClass) as taxClass,
+                        JSON_VALUE(t.taxCode) as taxCode,
+                        JSON_VALUE(t.taxName) as taxName,
+                        COALESCE(SAFE_CAST(JSON_VALUE(t.taxRate) AS FLOAT64), 0.0) as taxRate,
+                        JSON_VALUE(t.taxType) as taxType
+                    FROM UNNEST(JSON_QUERY_ARRAY(log.transactionData.taxRates)) t
+                ) as taxRates,
+
+                ARRAY(
+                    SELECT AS STRUCT
+                        JSON_VALUE(tnd.alternateRequestId) as alternateRequestId,
+                        COALESCE(SAFE_CAST(JSON_VALUE(tnd.amountAuthorized) AS FLOAT64), 0.0) as amountAuthorized,
+                        JSON_VALUE(tnd.authStatus) as authStatus,
+                        JSON_VALUE(tnd.authorizationDate) as authorizationDate,
+                        JSON_VALUE(tnd.captureDate) as captureDate,
+                        JSON_VALUE(tnd.captureStatus) as captureStatus,
+                        SAFE_CAST(JSON_VALUE(tnd.cardExpirationMonth) AS INT64) as cardExpirationMonth,
+                        SAFE_CAST(JSON_VALUE(tnd.cardExpirationYear) AS INT64) as cardExpirationYear,
+                        JSON_VALUE(tnd.cardNumber) as cardNumber,
+                        COALESCE(SAFE_CAST(JSON_VALUE(tnd.cardPresent) AS BOOL), FALSE) as cardPresent,
+                        JSON_VALUE(tnd.cardType) as cardType,
+                        JSON_VALUE(tnd.expiryDate) as expiryDate,
+                        JSON_VALUE(tnd.fundingSource) as fundingSource,
+                        JSON_VALUE(tnd.locale) as locale,
+                        JSON_VALUE(tnd.merchantId) as merchantId,
+                        JSON_VALUE(tnd.orderId) as orderId,
+                        JSON_VALUE(tnd.paymentDevice) as paymentDevice,
+                        JSON_VALUE(tnd.paymentDeviceId) as paymentDeviceId,
+                        JSON_VALUE(tnd.paymentGatewayConfigId) as paymentGatewayConfigId,
+                        JSON_VALUE(tnd.paymentId) as paymentId,
+                        JSON_VALUE(tnd.paymentMethod) as paymentMethod,
+                        SAFE_CAST(JSON_VALUE(tnd.paymentSequenceNumber) AS INT64) as paymentSequenceNumber,
+                        JSON_VALUE(tnd.paymentStatus) as paymentStatus,
+                        JSON_VALUE(tnd.region) as region,
+                        JSON_VALUE(tnd.requestId) as requestId,
+                        COALESCE(SAFE_CAST(JSON_VALUE(tnd.tip) AS FLOAT64), 0.0) as tip,
+                        COALESCE(SAFE_CAST(JSON_VALUE(tnd.totalRefundedAmount) AS FLOAT64), 0.0) as totalRefundedAmount,
+                        JSON_VALUE(tnd.transactionId) as transactionId
+                    FROM UNNEST(JSON_QUERY_ARRAY(log.transactionData.tenders)) tnd
+                ) as tenders
+
+            ) as transactionData
+        FROM UNNEST(JSON_QUERY_ARRAY(payload.orderActivityLog)) log
+    ) as orderActivityLog,
+
+    STRUCT(
+        JSON_VALUE(payload.customerProfile.firstName) as firstName,
+        JSON_VALUE(payload.customerProfile.lastName) as lastName,
+        JSON_VALUE(payload.customerProfile.email) as email,
+        JSON_VALUE(payload.customerProfile.phoneMobile) as phoneMobile,
+        JSON_VALUE(payload.customerProfile.loyaltyId) as loyaltyId,
+        JSON_VALUE(payload.customerProfile.customerId) as customerId,
+        JSON_VALUE(payload.customerProfile.customerGroup) as customerGroup,
+        STRUCT(
+            JSON_VALUE(payload.customerProfile.address.addressLine1) as addressLine1,
+            JSON_VALUE(payload.customerProfile.address.city) as city,
+            JSON_VALUE(payload.customerProfile.address.state) as state,
+            JSON_VALUE(payload.customerProfile.address.postalCode) as postalCode,
+            JSON_VALUE(payload.customerProfile.address.countryCode) as countryCode,
+            JSON_VALUE(payload.customerProfile.address.phone) as phone,
+            JSON_VALUE(payload.customerProfile.address.emailAddress) as emailAddress
+        ) as address
+    ) as customerProfile
+
+FROM parsed_layers
+
+
+)
+  SELECT
+    ARRAY_AGG(a ORDER BY a.publish_time DESC LIMIT 1)[OFFSET(0)].*
+  FROM alllines a
+  GROUP BY a.PRIMARY_KEY

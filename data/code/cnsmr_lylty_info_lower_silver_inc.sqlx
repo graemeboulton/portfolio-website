@@ -1,0 +1,40 @@
+config {
+  type: "incremental",
+  schema: "xfuze_staging",
+  description: "Consumer loyalty information unpacked from raw Pub/Sub messages",
+  tags: ["customers", "daily"],
+  bigquery: {
+    partitionBy: "DATE(publish_time)",
+    clusterBy: ["CNSMR_ID"]
+  }
+}
+
+SELECT
+  SAFE_CAST(JSON_VALUE(data, '$.CNSMR_ID') AS INT64) AS CNSMR_ID,
+  SAFE_CAST(JSON_VALUE(data, '$.LYLTY_ID') AS INT64) AS LYLTY_ID,
+  SAFE_CAST(JSON_VALUE(data, '$.LYLTY_NBR') AS INT64) AS LYLTY_NBR,
+  SAFE.PARSE_DATE('%Y-%m-%d', JSON_VALUE(data, '$.LYLTY_STRT_DT')) AS LYLTY_STRT_DT,
+  SAFE.PARSE_DATE('%Y-%m-%d', JSON_VALUE(data, '$.LYLTY_END_DT')) AS LYLTY_END_DT,
+  SAFE_CAST(JSON_VALUE(data, '$.LYLTY_ACCT_SRC') AS INT64) AS LYLTY_ACCT_SRC,
+  SAFE_CAST(JSON_VALUE(data, '$.NEXT_TIER_AMT') AS NUMERIC) AS NEXT_TIER_AMT,
+  SAFE_CAST(JSON_VALUE(data, '$.NEXT_RWRD_PT') AS INT64) AS NEXT_RWRD_PT,
+  SAFE_CAST(JSON_VALUE(data, '$.LYLTY_PT_CNT') AS NUMERIC) AS LYLTY_PT_CNT,
+  SAFE_CAST(JSON_VALUE(data, '$.LYLTY_RWRD_AMT') AS NUMERIC) AS LYLTY_RWRD_AMT,
+  SAFE.PARSE_DATE('%Y-%m-%d', JSON_VALUE(data, '$.LYLTY_TIER_STRT_DT')) AS LYLTY_TIER_STRT_DT,
+  SAFE.PARSE_DATE('%Y-%m-%d', JSON_VALUE(data, '$.LYLTY_TIER_EXPR_DT')) AS LYLTY_TIER_EXPR_DT,
+  JSON_VALUE(data, '$.CRTD_BY') AS CRTD_BY,
+  DATETIME(
+      TIMESTAMP(REPLACE(JSON_VALUE(data, '$.CRTD_DTTM'), 'Z', ''), "America/Los_Angeles"),
+      "America/Chicago"
+    ) AS CRTD_DTTM,
+  JSON_VALUE(data, '$.UPDT_BY') AS UPDT_BY,
+  DATETIME(
+      TIMESTAMP(REPLACE(JSON_VALUE(data, '$.UPDT_DTTM'), 'Z', ''), "America/Los_Angeles"),
+      "America/Chicago"
+    ) AS UPDT_DTTM,
+  subscription_name,
+  message_id,
+  publish_time,
+  TO_JSON_STRING(attributes) AS attributes
+FROM ${ref('raw_cnsmr_lylty_info')}
+${ when(incremental(), `WHERE publish_time > (SELECT MAX(publish_time) FROM ${self()})`) }

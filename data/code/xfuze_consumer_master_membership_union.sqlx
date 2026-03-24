@@ -1,0 +1,213 @@
+config {
+  type: "table",
+  tags: ["customers", "daily"],
+  assertions: {
+    uniqueKey: ["PrimaryKey"]
+  },
+  schema: "xfuze_customer",
+  description: "Customer data current and historical"
+}
+
+--- NOTE: BECAUSE OF WINDOW LOGIC THIS TABLE SHOULD NOT EVER BE INCREMENTAL ----
+
+WITH base_union AS (
+  SELECT 
+    CONCAT(MBRSHP_ID, CNSMR_ID, MBRSHP_STRT_DT) AS PrimaryKey,
+    MBRSHP_ID,
+    CNSMR_ID,
+    MBRSHP_SNC_YR,
+    MBRSHP_STRT_DT,
+    MBRSHP_END_DT,
+    MBRSHP_NBR,
+    FVRT_PRDCT_NM,
+    FVRT_PRDCT_DESC,
+    FOCUS_AREA_DESC,
+    USR_DSPLY_NM,
+    PLUCK_REF_USR_ID,
+    MBRSHP_ACCUM_PT_CNT,
+    MBRSHP_RDM_PT_CNT,
+    CRTD_BY,
+    TIMESTAMP(CRTD_DTTM) AS CRTD_DTTM,
+    UPDT_BY,
+    TIMESTAMP(UPDT_DTTM) AS UPDT_DTTM,
+    subscription_name,
+    message_id,
+    publish_time,
+    attributes
+  FROM ${ref('cnsmr_mbrshp_info_lower_silver_inc')}
+
+  UNION ALL 
+
+  SELECT 
+    CONCAT(MBRSHP_ID, CNSMR_ID, MBRSHP_STRT_DT) AS PrimaryKey,
+    MBRSHP_ID,
+    CNSMR_ID,
+    MBRSHP_SNC_YR,
+    MBRSHP_STRT_DT,
+    MBRSHP_END_DT,
+    MBRSHP_NBR,
+    FVRT_PRDCT_NM,
+    FVRT_PRDCT_DESC,
+    FOCUS_AREA_DESC,
+    USR_DSPLY_NM,
+    PLUCK_REF_USR_ID,
+    MBRSHP_ACCUM_PT_CNT,
+    MBRSHP_RDM_PT_CNT,
+    CRTD_BY,
+    TIMESTAMP(CRTD_DTTM) AS CRTD_DTTM,
+    UPDT_BY,
+    TIMESTAMP(UPDT_DTTM) AS UPDT_DTTM,
+    subscription_name,
+    message_id,
+    publish_time,
+    attributes
+  FROM ${ref('cnsmr_mbrshp_info_lower_silver')}
+
+----blueconic
+  UNION ALL 
+
+  SELECT 
+    CONCAT(MBRSHP_ID, CNSMR_ID, MBRSHP_STRT_DT) AS PrimaryKey,
+    MBRSHP_ID,
+    CNSMR_ID,
+    MBRSHP_SNC_YR,
+    MBRSHP_STRT_DT,
+    MBRSHP_END_DT,
+    CAST(MBRSHP_NBR as String) as MBRSHP_NBR,
+    FVRT_PRDCT_NM,
+    FVRT_PRDCT_DESC,
+    FOCUS_AREA_DESC,
+    USR_DSPLY_NM,
+    PLUCK_REF_USR_ID,
+    MBRSHP_ACCUM_PT_CNT,
+    MBRSHP_RDM_PT_CNT,
+    CRTD_BY,
+    TIMESTAMP(CRTD_DTTM) AS CRTD_DTTM,
+    UPDT_BY,
+    TIMESTAMP(UPDT_DTTM) AS UPDT_DTTM,
+    subscription_name,
+    message_id,
+    publish_time,
+    attributes
+  FROM ${ref('blueconic_membership_lower_silver')}
+
+
+
+),
+
+latest AS (
+  SELECT
+    ARRAY_AGG(e ORDER BY publish_time DESC, UPDT_DTTM DESC LIMIT 1)[OFFSET(0)].*
+  FROM base_union e
+  GROUP BY e.PrimaryKey
+),
+
+
+date_window as (
+SELECT
+  PrimaryKey,
+  MBRSHP_ID,
+  CNSMR_ID,
+  MBRSHP_SNC_YR,
+  CASE WHEN LEAD(MBRSHP_END_DT) OVER ( PARTITION BY CNSMR_ID, MBRSHP_ID ORDER BY MBRSHP_END_DT DESC, MBRSHP_STRT_DT DESC) > MBRSHP_STRT_DT 
+  THEN LEAD(MBRSHP_END_DT) OVER ( PARTITION BY CNSMR_ID, MBRSHP_ID ORDER BY MBRSHP_END_DT DESC, MBRSHP_STRT_DT DESC) 
+  ELSE MBRSHP_STRT_DT END AS MBRSHP_STRT_DT, -- If there are overlapping memberships, start when next one ends
+  MBRSHP_END_DT, 
+  MBRSHP_NBR,
+  FVRT_PRDCT_NM,
+  FVRT_PRDCT_DESC,
+  FOCUS_AREA_DESC,
+  USR_DSPLY_NM,
+  PLUCK_REF_USR_ID,
+  MBRSHP_ACCUM_PT_CNT,
+  MBRSHP_RDM_PT_CNT,
+  CRTD_BY,
+  CRTD_DTTM,
+  UPDT_BY,
+  UPDT_DTTM
+FROM latest
+)
+
+,next_date as
+(
+SELECT
+  PrimaryKey,
+  MBRSHP_ID,
+  CNSMR_ID,
+  MBRSHP_SNC_YR,
+  MBRSHP_STRT_DT,
+  MBRSHP_END_DT, 
+  LEAD(MBRSHP_STRT_DT) OVER (PARTITION BY CNSMR_ID, MBRSHP_ID ORDER BY MBRSHP_STRT_DT ASC, MBRSHP_END_DT ASC) AS NEXT_MBRSHP_STRT_DT,
+  MBRSHP_NBR,
+  FVRT_PRDCT_NM,
+  FVRT_PRDCT_DESC,
+  FOCUS_AREA_DESC,
+  USR_DSPLY_NM,
+  PLUCK_REF_USR_ID,
+  MBRSHP_ACCUM_PT_CNT,
+  MBRSHP_RDM_PT_CNT,
+  CRTD_BY,
+  CRTD_DTTM,
+  UPDT_BY,
+  UPDT_DTTM
+FROM date_window
+) 
+
+,master_union as 
+  (
+  SELECT
+  MBRSHP_ID, 
+  BRND_ID, 
+  MBRSHP_CLB_NM, 
+  MBRSHP_TIER_CD, 
+  MBRSHP_DESC, 
+  ACTV_IND, 
+  CRTD_BY, 
+  CAST(CRTD_DTTM AS TIMESTAMP) AS CRTD_DTTM, 
+  UPDT_BY, 
+  CAST(UPDT_DTTM AS TIMESTAMP) AS UPDT_DTTM, 
+  message_id, 
+  publish_time, 
+  attributes, 
+  subscription_name
+  FROM
+  ${ref('mbrshp_mstr')}
+
+  UNION ALL
+
+  SELECT
+  MBRSHP_ID, 
+  BRND_ID, 
+  MBRSHP_CLB_NM, 
+  MBRSHP_TIER_CD, 
+  MBRSHP_DESC, 
+  ACTV_IND, 
+  CRTD_BY, 
+  CAST(CRTD_DTTM AS TIMESTAMP) AS CRTD_DTTM, 
+  UPDT_BY, 
+  CAST(UPDT_DTTM AS TIMESTAMP) AS UPDT_DTTM, 
+  message_id, 
+  publish_time, 
+  attributes, 
+  subscription_name
+  FROM
+  ${ref('mbrshp_mstr_lower_silver')}
+  )
+
+  ,latest_master AS (
+  SELECT
+    ARRAY_AGG(e ORDER BY UPDT_DTTM DESC, publish_time DESC LIMIT 1)[OFFSET(0)].*
+  FROM master_union e
+  GROUP BY e.MBRSHP_ID
+)
+
+
+  SELECT 
+    w.*, 
+    lm.Brnd_ID,
+    lm.MBRSHP_TIER_CD
+  FROM next_date w
+  INNER JOIN latest_master lm
+    ON w.MBRSHP_ID = lm.MBRSHP_ID
+
+

@@ -1,0 +1,357 @@
+config {
+  type: "incremental",
+  tags: ["ga4", "daily"],
+  schema: "xfuze_ga",
+  description: "cleaned event level ga data",
+  bigquery: {
+    partitionBy: "event_date",
+    clusterBy: ["ga_client_id"],
+  }
+}
+
+
+pre_operations {
+  ${when(incremental(), 
+    "DELETE FROM " + self() + " WHERE event_date >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY);", 
+    ""
+  )}
+}
+
+with base as (
+SELECT
+    *
+FROM  ${ref("ga4_mc_events_new")}
+WHERE event_date_parsed <= '2025-12-08'
+${when(incremental(), `AND event_date_parsed >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY)`)}
+UNION ALL
+
+SELECT
+    *
+FROM ${ref("ga4_mc_events_inc")}
+WHERE event_date_parsed > '2025-12-08'
+${when(incremental(), `AND event_date_parsed >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY)`)}
+)
+  
+-- -- Extract event parameters into columns
+, event_params_extracted AS (
+  SELECT
+    ga.*,
+
+    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS ep_ga_session_id,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'event_id') AS ep_event_id,
+    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_number') AS ep_ga_session_number,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_location') AS ep_page_location,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_title') AS ep_page_title,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_type') AS ep_page_type,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'page_referrer') AS ep_page_referrer,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'site_country') AS ep_site_country,
+    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'entrances') AS ep_entrances,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'session_engaged') AS ep_session_engaged,
+    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'engagement_time_msec') AS ep_engagement_time_msec,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'video_status') AS ep_video_status,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'video_name') AS ep_video_name,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'data_track_name') AS ep_data_track_name,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'data_track_text') AS ep_data_track_text,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'data_track_category') AS ep_data_track_category,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'content_asset_name') AS ep_content_asset_name,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'content_asset_category') AS ep_content_asset_category,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'content_asset_text') AS ep_content_asset_text,
+    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'content_asset_position') AS ep_content_asset_position,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'search_term') AS ep_search_term,
+    (SELECT COALESCE(value.string_value, CAST(value.int_value AS STRING)) FROM UNNEST(event_params) WHERE key = 'filters') AS ep_filters,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'component_name') AS ep_component_name,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = 'add_to_cart_type') AS ep_add_to_cart_type
+    
+  FROM base AS ga
+  WHERE 1=1
+)
+
+
+-- Generate client ID (user_pseudo_id or fingerprint)
+,events_with_client_id AS (
+  SELECT
+    *,
+    TO_HEX(MD5(CONCAT(
+        user_pseudo_id,
+        CAST(event_timestamp AS STRING),
+        event_name,
+        COALESCE(CAST(event_bundle_sequence_id AS STRING), ''),
+        COALESCE(ep_ga_session_id, 0),
+        COALESCE(CAST(ep_engagement_time_msec AS STRING), '')
+    ))) AS PrimaryKey,
+    IFNULL(
+      user_pseudo_id,
+      CAST(
+        FARM_FINGERPRINT(
+          CONCAT(
+            event_date,
+            IFNULL(platform, "NA"),
+            IFNULL(geo.continent, "NA"),
+            IFNULL(geo.sub_continent, "NA"),
+            IFNULL(geo.country, "NA"),
+            IFNULL(geo.region, "NA"),
+            IFNULL(geo.metro, "NA"),
+            IFNULL(device.category, "NA"),
+            IFNULL(device.mobile_brand_name, "NA"),
+            IFNULL(device.mobile_model_name, "NA"),
+            IFNULL(device.mobile_marketing_name, "NA"),
+            IFNULL(device.mobile_os_hardware_model, "NA"),
+            IFNULL(device.operating_system, "NA"),
+            IFNULL(device.operating_system_version, "NA"),
+            IFNULL(device.vendor_id, "NA"),
+            IFNULL(device.advertising_id, "NA"),
+            IFNULL(device.`language`, "NA"),
+            IFNULL(device.is_limited_ad_tracking, "NA"),
+            IFNULL(CAST(device.time_zone_offset_seconds AS STRING), "NA"),
+            IFNULL(device.browser, "NA"),
+            IFNULL(device.browser_version, "NA"),
+            IFNULL(device.web_info.browser, "NA"),
+            IFNULL(device.web_info.browser_version, "NA"),
+            IFNULL(device.web_info.hostname, "NA")
+          )
+        ) AS STRING
+      )
+    ) AS ga_client_id
+    
+  FROM event_params_extracted
+),
+
+
+
+-- Build main event table with all derived fields
+main_events AS (
+  SELECT
+    event_date_parsed AS event_date,
+    event_name,
+    primarykey,
+    
+    IF(event_name IN ('email_sign_up', 'purchase', 'form_submit'), TRUE, NULL) AS is_key_event,
+    
+    DATETIME(TIMESTAMP_MICROS(event_timestamp),  "America/Chicago") AS event_timestamp,
+    
+    -- Consent & Identity
+    IF(ga.user_pseudo_id IS NULL, FALSE, TRUE) AS consent_granted,
+    ga_client_id,
+    IFNULL(ep_ga_session_id, 0) AS ep_ga_session_id,
+    IFNULL(ep_event_id, "na") AS ep_event_id,
+    
+    -- Page fields
+    device.web_info.hostname AS hostname,
+    REPLACE(ep_page_location, "https://" || device.web_info.hostname, "") AS page_path,
+    ep_page_title AS page_title,
+    ep_page_type AS page_type,
+    ep_page_referrer AS page_referrer,
+    
+    IF(
+      event_name = 'session_start',
+      REPLACE(ep_page_location, "https://" || device.web_info.hostname, ""),
+      NULL
+    ) AS session_landing_page,
+    
+    (ep_entrances = 1 AND event_name = 'page_view') AS is_entrance_pageview,
+    
+    -- Geography
+    CASE
+      WHEN LOWER(ep_site_country) LIKE "%ca%" THEN "CA"
+      WHEN STARTS_WITH(LOWER(REPLACE(ep_page_location, "https://" || device.web_info.hostname, "")), "/en-ca") THEN "CA"
+      WHEN STARTS_WITH(LOWER(REPLACE(ep_page_location, "https://" || device.web_info.hostname, "")), "/fr-ca") THEN "CA"
+      ELSE "US"
+    END AS site_country,
+    
+    geo.country,
+    geo.region AS state,
+    geo.city,
+    
+    -- Device
+    device.category AS device_category,
+    device.operating_system AS device_operating_system,
+    device.web_info.browser AS device_browser,
+    
+    -- Video
+    ep_video_status AS video_status,
+    ep_video_name AS video_name,
+    
+    -- Tracking
+    ep_data_track_name AS data_track_name,
+    ep_data_track_text AS data_track_text,
+    ep_data_track_category AS data_track_category,
+    
+    -- Content
+    ep_content_asset_name AS content_asset_name,
+    ep_content_asset_category AS content_asset_category,
+    ep_content_asset_text AS content_asset_text,
+    ep_content_asset_position AS content_asset_position,
+    
+    -- Search
+    ep_search_term AS search_term,
+    ep_filters AS filters,
+    
+    -- User type
+    CASE
+      WHEN ep_ga_session_number = 1 THEN "New"
+      ELSE "Returning"
+    END AS user_type,
+    
+    -- Acquisition traffic source
+    traffic_source.source AS acq_source,
+    traffic_source.medium AS acq_medium,
+    traffic_source.name AS acq_campaign_name,
+
+
+    
+    -- Session traffic source (with backfill for old data)
+    IFNULL(session_traffic_source_last_click.cross_channel_campaign.default_channel_group, CAST(chbf.default_channel_grouping as String)) as session_default_channel_group, 
+    IFNULL(session_traffic_source_last_click.cross_channel_campaign.primary_channel_group, CAST(chbf.default_channel_grouping as String)) as session_primary_channel_group,
+    IFNULL(session_traffic_source_last_click.cross_channel_campaign.source, chbf.last_non_direct.source) as session_source, 
+    IFNULL(session_traffic_source_last_click.cross_channel_campaign.medium, chbf.last_non_direct.medium) AS session_medium,
+    IFNULL(session_traffic_source_last_click.cross_channel_campaign.campaign_name, chbf.last_non_direct.campaign) as session_campaign_name,
+
+    CASE
+        WHEN
+          LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.medium, chbf.last_non_direct.medium)) = 'organic'
+          THEN 'Organic Search'
+        WHEN
+          LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.medium, chbf.last_non_direct.medium)) = 'cpc'
+          THEN 'Paid Search'
+        WHEN
+          REGEXP_CONTAINS(LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.medium, chbf.last_non_direct.medium)), r'email|sms|flow') AND REGEXP_CONTAINS(LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.source, chbf.last_non_direct.source)), r'klaviyo|marketing')
+          THEN 'CRM Email/SMS'
+        WHEN
+          REGEXP_CONTAINS(LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.medium, chbf.last_non_direct.medium)), r'digital_direct')
+          THEN 'Digital Direct'
+        WHEN
+          LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.medium, chbf.last_non_direct.medium)) = 'digital_programmatic' OR REGEXP_CONTAINS(LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.source, chbf.last_non_direct.source)), r'ttd')
+          THEN 'Digital Programmatic'
+        WHEN
+          (
+            REGEXP_CONTAINS(LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.medium, chbf.last_non_direct.medium)), r'^paid_social.*|^paid-social$|psoc|^facebook_.*|^instagram_.*')
+            OR LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.medium, chbf.last_non_direct.medium)) = 'paid'
+          )
+          AND REGEXP_CONTAINS(LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.source, chbf.last_non_direct.source)), r'fb|ig|tiktok|meta|facebook|instagram|fb/ig|reddit|pint|pinterest|snapchat|ig/fb|reddit\.com|m\.facebook\.com')
+          THEN 'Paid Social'
+        WHEN
+          LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.medium, chbf.last_non_direct.medium)) = 'organic_social'
+          THEN 'Mattel Organic Social'
+        WHEN
+          REGEXP_CONTAINS(LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.medium, chbf.last_non_direct.medium)), r'referral')
+          AND REGEXP_CONTAINS(LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.source, chbf.last_non_direct.source)), r'facebook|pinterest|tiktok|reddit|instagram|linkedin|snapchat|youtube|x|t\.co')
+          THEN 'External Organic Social'
+        WHEN
+          LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.source, chbf.last_non_direct.source)) = 'igshopping' OR LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.medium, chbf.last_non_direct.medium)) = 'product_shelf'
+          THEN 'Social Shopping'
+        WHEN
+          (LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.source, chbf.last_non_direct.source)) = 'google' AND LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.medium, chbf.last_non_direct.medium)) = 'product_sync')
+          OR IFNULL(session_traffic_source_last_click.cross_channel_campaign.campaign_name, chbf.last_non_direct.campaign) = 'shopping free listings'
+          THEN 'Google Shopping'
+        WHEN
+          LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.medium, chbf.last_non_direct.medium)) = 'affiliate' OR LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.source, chbf.last_non_direct.source)) = 'affiliate'
+          THEN 'Affiliate'
+        WHEN
+          LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.medium, chbf.last_non_direct.medium)) = 'physical'
+          THEN 'Live Event'
+        WHEN
+          LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.medium, chbf.last_non_direct.medium)) = 'pr'
+          THEN 'Public Relations'
+        WHEN
+          IFNULL(session_traffic_source_last_click.cross_channel_campaign.default_channel_group, chbf.default_channel_grouping) = "Referral"
+          AND NOT REGEXP_CONTAINS(LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.source, chbf.last_non_direct.source)), r'facebook|pinterest|tiktok|reddit|instagram|linkedin|snapchat|youtube|x|t\.co|ig|fb')
+          THEN 'Referral'
+        WHEN
+          REGEXP_CONTAINS(LOWER(IFNULL(session_traffic_source_last_click.cross_channel_campaign.source, chbf.last_non_direct.source)), r'shop_app')
+          THEN 'Shop App'
+        WHEN traffic_source.source = '(direct)' THEN 'Direct'
+        ELSE
+        IFNULL(IFNULL(session_traffic_source_last_click.cross_channel_campaign.default_channel_group, chbf.default_channel_grouping), "Unassigned")
+      END as session_custom_channel_group,
+    
+    -- Collected traffic source
+    collected_traffic_source.manual_source AS col_source,
+    collected_traffic_source.manual_medium AS col_medium,
+    collected_traffic_source.manual_campaign_name AS col_campaign_name,
+
+    -- Customer ids --
+    (SELECT value.int_value FROM UNNEST(user_properties) WHERE key = 'consumer_id') AS consumer_id,
+    (SELECT value.int_value FROM UNNEST(user_properties) WHERE key = 'customer_id') AS customer_id,
+    (SELECT value.string_value FROM UNNEST(user_properties) WHERE key = 'bc_id') AS bc_id,
+    
+    ep_session_engaged as engaged_session,
+    
+    -- Engaged user logic
+    CASE 
+      WHEN  DATE(TIMESTAMP_MICROS(event_timestamp)) <= "2023-07-18" AND 
+        (ep_engagement_time_msec > 0 OR ep_session_engaged = '1' OR event_name = 'first_visit') THEN TRUE
+      WHEN  DATE(TIMESTAMP_MICROS(event_timestamp)) > "2023-07-18" THEN is_active_user
+      ELSE FALSE
+    END AS engaged_user,
+    
+    -- Component
+    ep_component_name AS component_name,
+    
+    -- Ecommerce
+    ecommerce.transaction_id AS ecomm_transaction_id,
+    ecommerce.total_item_quantity AS ecomm_total_item_quantity,
+    ecommerce.purchase_revenue_in_usd AS ecomm_purchase_revenue,
+    ecommerce.unique_items AS ecomm_unique_items,
+    ep_add_to_cart_type AS atc_type,
+
+    -- Transaction ID
+    (SELECT value.string_value 
+    FROM UNNEST(event_params) 
+    WHERE key = 'transaction_id' 
+    LIMIT 1
+    ) AS transaction_id,
+
+    -- Purchase value
+    COALESCE(
+      (SELECT CAST(value.double_value AS FLOAT64) 
+      FROM UNNEST(event_params) 
+      WHERE key = 'value' 
+      LIMIT 1),
+      event_value_in_usd
+    ) AS purchase_value,
+
+    -- Currency
+    COALESCE(
+      (SELECT value.string_value 
+      FROM UNNEST(event_params) 
+      WHERE key = 'currency' 
+      LIMIT 1),
+      'usd'
+    ) AS currency,
+
+    -- Transaction quantity (count of items in array)
+    ARRAY_LENGTH(items) AS transaction_qty,
+
+    -- Items array
+    ARRAY(
+      SELECT AS STRUCT
+        item_id,
+        item_name,
+        item_brand,
+        item_category,
+        price_in_usd AS item_price,
+        item_revenue_in_usd AS item_revenue,
+        quantity AS item_quantity,
+        (SELECT COALESCE(value.string_value, CAST(value.int_value AS STRING)) 
+        FROM UNNEST(item_params) 
+        WHERE key = "product_rec_item_id" 
+        LIMIT 1) AS product_rec_item_id,
+        (SELECT value.string_value 
+        FROM UNNEST(item_params) 
+        WHERE key = "evergreen" 
+        LIMIT 1) AS evergreen
+      FROM UNNEST(items)
+    ) AS items
+
+    
+  FROM events_with_client_id ga
+  LEFT JOIN ${ref("xfuze_legacy_ga_event_attribution_creations_us")} chbf ON chbf.session_id = ga.user_pseudo_id ||"-"|| (SELECT value.int_value FROM UNNEST(ga.event_params) WHERE key = 'ga_session_id')
+  WHERE 1=1
+
+
+)
+
+
+SELECT 
+m.*
+FROM main_events m

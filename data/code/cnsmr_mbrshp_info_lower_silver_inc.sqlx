@@ -1,0 +1,41 @@
+config {
+  type: "incremental",
+  schema: "xfuze_staging",
+  description: "Consumer membership information unpacked from raw Pub/Sub messages",
+  tags: ["customers", "daily"],
+  bigquery: {
+    partitionBy: "DATE(publish_time)",
+    clusterBy: ["CNSMR_ID"]
+  }
+}
+
+SELECT
+  SAFE_CAST(JSON_VALUE(data, '$.MBRSHP_ID') AS INT64) AS MBRSHP_ID,
+  SAFE_CAST(JSON_VALUE(data, '$.CNSMR_ID') AS INT64) AS CNSMR_ID,
+  SAFE_CAST(JSON_VALUE(data, '$.MBRSHP_SNC_YR') AS INT64) AS MBRSHP_SNC_YR,
+  SAFE.PARSE_DATE('%Y-%m-%d', JSON_VALUE(data, '$.MBRSHP_STRT_DT')) AS MBRSHP_STRT_DT,
+  SAFE.PARSE_DATE('%Y-%m-%d', JSON_VALUE(data, '$.MBRSHP_END_DT')) AS MBRSHP_END_DT,
+  JSON_VALUE(data, '$.MBRSHP_NBR') AS MBRSHP_NBR,
+  JSON_VALUE(data, '$.FVRT_PRDCT_NM') AS FVRT_PRDCT_NM,
+  JSON_VALUE(data, '$.FVRT_PRDCT_DESC') AS FVRT_PRDCT_DESC,
+  JSON_VALUE(data, '$.FOCUS_AREA_DESC') AS FOCUS_AREA_DESC,
+  JSON_VALUE(data, '$.USR_DSPLY_NM') AS USR_DSPLY_NM,
+  JSON_VALUE(data, '$.PLUCK_REF_USR_ID') AS PLUCK_REF_USR_ID,
+  SAFE_CAST(JSON_VALUE(data, '$.MBRSHP_ACCUM_PT_CNT') AS FLOAT64) AS MBRSHP_ACCUM_PT_CNT,
+  SAFE_CAST(JSON_VALUE(data, '$.MBRSHP_RDM_PT_CNT') AS FLOAT64) AS MBRSHP_RDM_PT_CNT,
+  JSON_VALUE(data, '$.CRTD_BY') AS CRTD_BY,
+  DATETIME(
+      TIMESTAMP(REPLACE(JSON_VALUE(data, '$.CRTD_DTTM'), 'Z', ''), "America/Los_Angeles"),
+      "America/Chicago"
+    ) AS CRTD_DTTM,
+  JSON_VALUE(data, '$.UPDT_BY') AS UPDT_BY,
+  DATETIME(
+      TIMESTAMP(REPLACE(JSON_VALUE(data, '$.UPDT_DTTM'), 'Z', ''), "America/Los_Angeles"),
+      "America/Chicago"
+    ) AS UPDT_DTTM,
+  subscription_name,
+  message_id,
+  publish_time,
+  TO_JSON_STRING(attributes) AS attributes
+FROM ${ref('xfuze_consumer_master', 'raw_cnsmr_mbrshp_info')}
+${ when(incremental(), `WHERE publish_time > (SELECT MAX(publish_time) FROM ${self()})`) }

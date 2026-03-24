@@ -1,0 +1,365 @@
+config {
+  type: "incremental",
+  tags: ["products", "daily"],
+  schema: "xfuze_staging",
+  description: "Products data with variants, images, and metafields from Shopify landing table",
+  uniqueKey: ["ProductID"],
+  bigquery: {
+    partitionBy: "DATE(BQLoadTimeStamp)",
+    clusterBy: ["Storefront", "ProductID"]
+  }
+}
+
+pre_operations {
+  ${when(incremental(), 
+    "DECLARE max_load_date DATE DEFAULT (SELECT COALESCE(MAX(DATE(BQLoadTimeStamp)), DATE('2020-01-01')) FROM " + self() + " WHERE DATE(BQLoadTimeStamp) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY));", 
+    ""
+  )}
+}
+
+WITH ProductsBase AS (
+  SELECT
+    publish_time AS BQLoadTimeStamp,
+    TIMESTAMP(JSON_VALUE(data, '$.EventOccurredTimestampUTC')) AS EventOccurredTimestampUTC,
+    JSON_VALUE(data, '$.EventID') AS EventID,
+    REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.ProductId'), r'(\d+)$') AS EntityID,
+    JSON_VALUE(data, '$.EventType') AS EventType,
+    JSON_VALUE(data, '$.EventVersion') AS EventVersion,
+    JSON_VALUE(data, '$.DataSource') AS DataSource,
+    JSON_VALUE(data, '$.Locale') AS Locale,
+    JSON_VALUE(data, '$.Storefront') AS Storefront,
+    '' AS StoreNumber,
+    
+    -- Product fields
+    REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.ProductId'), r'(\d+)$') AS ProductID,
+    REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.ProductId'), r'(\d+)$') AS ProductLegacyResourceID,
+    JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Title') AS ProductTitle,
+    JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Handle') AS ProductHandle,
+    JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.ProductType') AS ProductType,
+    JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.CustomProductType') AS CustomProductType,
+    TIMESTAMP(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.CreatedAt')) AS ProductCreatedAt,
+    TIMESTAMP(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.UpdatedAt')) AS ProductUpdatedAt,
+    TIMESTAMP(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.PublishedAt')) AS ProductPublishedAt,
+    JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Status') AS ProductStatus,
+    JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.BodyHtml') AS ProductDescription,
+    JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.OnlineStoreUrl') AS OnlineStoreUrl,
+    JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.CombinedListingRole') AS CombinedListingRole,
+
+    -- Category
+    STRUCT(
+      REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Category.CategoryId'), r'(\w+)$') AS CategoryId,
+      JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Category.Name') AS Name,
+      JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Category.FullName') AS FullName,
+      CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Category.Level') AS INT64) AS Level,
+      CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Category.IsRoot') AS BOOL) AS IsRoot,
+      CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Category.IsLeaf') AS BOOL) AS IsLeaf,
+      CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Category.IsArchived') AS BOOL) AS IsArchived,
+      JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Category.ParentId') AS ParentId
+    ) AS Category,
+
+    -- Price Range
+    STRUCT(
+      STRUCT(
+        CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.PriceRangeV2.MinVariantPrice.Amount') AS FLOAT64) AS Amount,
+        JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.PriceRangeV2.MinVariantPrice.CurrencyCode') AS CurrencyCode
+      ) AS MinVariantPrice,
+      STRUCT(
+        CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.PriceRangeV2.MaxVariantPrice.Amount') AS FLOAT64) AS Amount,
+        JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.PriceRangeV2.MaxVariantPrice.CurrencyCode') AS CurrencyCode
+      ) AS MaxVariantPrice
+    ) AS PriceRangeV2,
+
+    -- Compare At Price Range
+    STRUCT(
+      STRUCT(
+        CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.CompareAtPriceRange.MinVariantCompareAtPrice.Amount') AS FLOAT64) AS Amount,
+        JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.CompareAtPriceRange.MinVariantCompareAtPrice.CurrencyCode') AS CurrencyCode
+      ) AS MinVariantCompareAtPrice,
+      STRUCT(
+        CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.CompareAtPriceRange.MaxVariantCompareAtPrice.Amount') AS FLOAT64) AS Amount,
+        JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.CompareAtPriceRange.MaxVariantCompareAtPrice.CurrencyCode') AS CurrencyCode
+      ) AS MaxVariantCompareAtPrice
+    ) AS CompareAtPriceRange,
+
+    -- Featured Image
+    STRUCT(
+      REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Image.ImageId'), r'(\d+)$') AS ImageId,
+      JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Image.Src') AS Src,
+      JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Image.AltText') AS AltText,
+      CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Image.Width') AS INT64) AS Width,
+      CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Image.Height') AS INT64) AS Height
+    ) AS FeaturedImage,
+
+    -- Product Options
+    ARRAY(
+      SELECT STRUCT(
+        JSON_VALUE(opt, '$.Name') AS Name,
+        JSON_VALUE(opt, '$.Position') AS Position,
+        ARRAY(
+          SELECT JSON_VALUE(val)
+          FROM UNNEST(JSON_QUERY_ARRAY(opt, '$.Values')) AS val
+        ) AS Values
+      )
+      FROM UNNEST(JSON_QUERY_ARRAY(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Options')) AS opt
+    ) AS ProductOptions,
+
+    -- Bundle Components
+    ARRAY(
+      SELECT STRUCT(
+        REGEXP_EXTRACT(JSON_VALUE(comp, '$.ComponentProduct.ProductId'), r'(\d+)$') AS ProductId,
+        JSON_VALUE(comp, '$.ComponentProduct.Title') AS Title,
+        JSON_VALUE(comp, '$.ComponentProduct.Handle') AS Handle,
+        CAST(JSON_VALUE(comp, '$.Quantity') AS INT64) AS Quantity
+      )
+      FROM UNNEST(JSON_QUERY_ARRAY(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.BundleComponents')) AS comp
+    ) AS BundleComponents,
+
+    -- Combined Listing
+    STRUCT(
+      REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.CombinedListing.ParentProduct.ProductId'), r'(\d+)$') AS ParentProductId,
+      JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.CombinedListing.ParentProduct.Title') AS ParentProductTitle,
+      ARRAY(
+        SELECT STRUCT(
+          REGEXP_EXTRACT(JSON_VALUE(child, '$.Product.ProductId'), r'(\d+)$') AS ProductId,
+          JSON_VALUE(child, '$.Product.Title') AS Title,
+          JSON_VALUE(child, '$.Product.Handle') AS Handle
+        )
+        FROM UNNEST(JSON_QUERY_ARRAY(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.CombinedListing.CombinedListingChildren')) AS child
+      ) AS Children
+    ) AS CombinedListing,
+
+    -- Event Metadata
+    JSON_VALUE(data, '$.EventMetadata.ProcessingAtts.Xfuze.SingleViewID') AS SingleViewID,
+    JSON_VALUE(data, '$.EventMetadata.PayloadAtts.Origin.DataPayloadHash') AS DataPayloadHash,
+    JSON_VALUE(data, '$.EventMetadata.PayloadAtts.Xfuze.FinalEntityHash') AS FinalEntityHash,
+
+    -- Product Tags (array of strings)
+    ARRAY(
+      SELECT JSON_VALUE(tag)
+      FROM UNNEST(JSON_QUERY_ARRAY(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Tags')) AS tag
+    ) AS ProductTagsStrings,
+
+    CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.RequiresSellingPlan') AS BOOL) AS ProductRequiresSellingPlan,
+    CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.HasOnlyDefaultVariant') AS BOOL) AS ProductHasOnlyDefaultVariant,
+    CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.TotalInventory') AS INT64) AS ProductTotalInventory,
+    CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.TracksInventory') AS BOOL) AS ProductTracksInventory,
+    JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Vendor') AS ProductVendor,
+    STRUCT(
+      JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Metafield.Key') AS Key,
+      JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Metafield.Value') AS Value,
+      JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Product.Metafield.Namespace') AS Namespace
+    ) AS ProductMetafield
+  FROM ${ref("products_landing_table")}
+  WHERE JSON_VALUE(data, '$.EventOriginType') = 'Product'
+  ${when(incremental(), `AND DATE(publish_time) > DATE_SUB(max_load_date, INTERVAL 2 DAY)`)}
+),
+
+VariantsBase AS (
+  SELECT
+    JSON_VALUE(data, '$.EventID') AS EventID,
+    REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductVariant.ProductId'), r'(\d+)$') AS ProductID,
+    REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductVariant.VariantId'), r'(\d+)$') AS ProductVariantID,
+    REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductVariant.VariantId'), r'(\d+)$') AS ProductVariantLegacyResourceID,
+    JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductVariant.Title') AS ProductVariantTitle,
+    JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductVariant.Sku') AS ProductVariantSKU,
+    CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductVariant.Price') AS FLOAT64) AS ProductVariantPrice,
+    CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductVariant.CompareAtPrice') AS FLOAT64) AS ProductVariantCompareAtPrice,
+    CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductVariant.Taxable') AS BOOL) AS IsTaxable,
+    JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductVariant.Barcode') AS ProductBarcode,
+    CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductVariant.InventoryQuantity') AS INT64) AS InventoryQuantity,
+    TIMESTAMP(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductVariant.CreatedAt')) AS VariantCreatedAt,
+    TIMESTAMP(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductVariant.UpdatedAt')) AS VariantUpdatedAt,
+
+    -- Variant Image
+    STRUCT(
+      REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductVariant.Image.ImageId'), r'(\d+)$') AS ImageId,
+      JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductVariant.Image.Src') AS Src
+    ) AS VariantImage,
+
+    -- Variant Metafields
+    ARRAY(
+      SELECT STRUCT(
+        JSON_VALUE(mf, '$.Key') AS Key,
+        JSON_VALUE(mf, '$.Value') AS Value,
+        JSON_VALUE(mf, '$.Namespace') AS Namespace
+      )
+      FROM UNNEST(JSON_QUERY_ARRAY(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductVariant.Metafields')) AS mf
+    ) AS VariantMetafields,
+
+    -- Inventory Item struct (placeholder - adjust based on actual fields if available)
+    STRUCT(
+      CAST(NULL AS BOOL) AS IsTracked,
+      CAST(NULL AS BOOL) AS RequiresShipping,
+      STRUCT(
+        CAST(NULL AS FLOAT64) AS amount,
+        CAST(NULL AS STRING) AS currencyCode
+      ) AS unitCost,
+      CAST(NULL AS STRING) AS countryCodeOfOrigin,
+      CAST(NULL AS STRING) AS provinceCodeOfOrigin,
+      CAST(NULL AS STRING) AS harmonizedSystemCode,
+      STRUCT(
+        STRUCT(
+          CAST(NULL AS FLOAT64) AS value,
+          CAST(NULL AS STRING) AS unit
+        ) AS weight
+      ) AS measurement
+    ) AS InventoryItem
+  FROM ${ref("products_landing_table")}
+  WHERE JSON_VALUE(data, '$.EventOriginType') = 'ProductVariant'
+  ${when(incremental(), `AND DATE(publish_time) > DATE_SUB(max_load_date, INTERVAL 2 DAY)`)}
+),
+
+ImagesBase AS (
+  SELECT
+    REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductImage.ProductId'), r'(\d+)$') AS ProductID,
+    STRUCT(
+      REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductImage.ImageId'), r'(\d+)$') AS ProductImageID,
+      JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductImage.Src') AS ProductImageSrc,
+      JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductImage.AltText') AS AltText,
+      CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductImage.Width') AS INT64) AS Width,
+      CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.ProductImage.Height') AS INT64) AS Height
+    ) AS Image
+  FROM ${ref("products_landing_table")}
+  WHERE JSON_VALUE(data, '$.EventOriginType') = 'ProductImage'
+  ${when(incremental(), `AND DATE(publish_time) > DATE_SUB(max_load_date, INTERVAL 2 DAY)`)}
+),
+
+ImagesAgg AS (
+  SELECT
+    ProductID,
+    ARRAY_AGG(
+      STRUCT(
+        Image.ProductImageID,
+        Image.ProductImageSrc,
+        Image.AltText,
+        Image.Width,
+        Image.Height
+      )
+    ) AS ProductImages
+  FROM ImagesBase
+  GROUP BY ProductID
+),
+
+CollectionsBase AS (
+  SELECT
+    REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Collection.ProductId'), r'(\d+)$') AS ProductID,
+    STRUCT(
+      REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Collection.CollectionId'), r'(\d+)$') AS CollectionID,
+      JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Collection.Handle') AS Handle,
+      JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.Collection.Title') AS Title
+    ) AS Collection
+  FROM ${ref("products_landing_table")}
+  WHERE JSON_VALUE(data, '$.EventOriginType') = 'Collection'
+  ${when(incremental(), `AND DATE(publish_time) > DATE_SUB(max_load_date, INTERVAL 2 DAY)`)}
+),
+
+CollectionsAgg AS (
+  SELECT
+    ProductID,
+    ARRAY_AGG(
+      STRUCT(
+        Collection.CollectionID,
+        Collection.Handle,
+        Collection.Title
+      )
+    ) AS ProductCollections
+  FROM CollectionsBase
+  GROUP BY ProductID
+),
+
+VariantsAgg AS (
+  SELECT
+    ProductID,
+    ARRAY_AGG(
+      STRUCT(
+        v.ProductVariantID,
+        v.ProductVariantLegacyResourceID,
+        v.ProductVariantTitle,
+        v.ProductVariantSKU,
+        v.ProductVariantPrice,
+        v.ProductVariantCompareAtPrice,
+        v.IsTaxable,
+        v.ProductBarcode,
+        v.InventoryQuantity,
+        v.VariantCreatedAt,
+        v.VariantUpdatedAt,
+        v.VariantImage,
+        v.VariantMetafields,
+        v.InventoryItem
+      )
+    ) AS ProductVariants
+  FROM VariantsBase v
+  GROUP BY ProductID
+),
+
+BASE AS (
+  SELECT
+    p.BQLoadTimeStamp,
+    p.EventOccurredTimestampUTC,
+    p.EventID,
+    p.EntityID,
+    p.EventType,
+    p.EventVersion,
+    p.DataSource,
+    p.Locale,
+    p.Storefront,
+    p.StoreNumber,
+    p.ProductID,
+    p.ProductLegacyResourceID,
+    p.ProductTitle,
+    p.ProductHandle,
+    p.ProductType,
+    p.CustomProductType,
+    p.ProductCreatedAt,
+    p.ProductUpdatedAt,
+    p.ProductPublishedAt,
+    p.ProductStatus,
+    p.ProductDescription,
+    p.OnlineStoreUrl,
+    p.CombinedListingRole,
+    p.Category,
+    p.PriceRangeV2,
+    p.CompareAtPriceRange,
+    p.FeaturedImage,
+    p.ProductOptions,
+    p.BundleComponents,
+    p.CombinedListing,
+    p.SingleViewID,
+    p.DataPayloadHash,
+    p.FinalEntityHash,
+
+    -- Product Tags (transformed from colon-separated strings to key-value structs)
+    (
+      SELECT ARRAY_AGG(
+        STRUCT(
+          TRIM(SPLIT(tag, ':')[SAFE_OFFSET(0)]) AS key,
+          TRIM(SPLIT(tag, ':')[SAFE_OFFSET(1)]) AS value
+        )
+      )
+      FROM UNNEST(p.ProductTagsStrings) AS tag
+      WHERE STRPOS(tag, ':') > 0
+    ) AS ProductTags,
+
+    p.ProductRequiresSellingPlan,
+    p.ProductHasOnlyDefaultVariant,
+    p.ProductTotalInventory,
+    p.ProductTracksInventory,
+    p.ProductVendor,
+    p.ProductMetafield,
+    COALESCE(i.ProductImages, []) AS ProductImages,
+    COALESCE(v.ProductVariants, []) AS ProductVariants,
+    COALESCE(c.ProductCollections, []) AS ProductCollections
+  FROM ProductsBase p
+  LEFT JOIN ImagesAgg i ON p.ProductID = i.ProductID
+  LEFT JOIN VariantsAgg v ON p.ProductID = v.ProductID
+  LEFT JOIN CollectionsAgg c ON p.ProductID = c.ProductID
+),
+
+LATEST AS (
+  SELECT
+    ARRAY_AGG(e ORDER BY e.BQLoadTimeStamp DESC LIMIT 1)[OFFSET(0)].*
+  FROM BASE e
+  GROUP BY e.EntityID
+)
+
+SELECT * FROM LATEST

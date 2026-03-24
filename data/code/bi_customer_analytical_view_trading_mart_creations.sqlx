@@ -1,0 +1,157 @@
+config {
+  type: "incremental",
+  tags: ["sales_orders", "products", "customers", "daily"],   
+  schema: "bi_customer",
+  uniqueKey: ["PrimaryKey"],
+  assertions: {
+    uniqueKey: ["PrimaryKey"]},
+  description: "customer transactions for an anlaytical view",
+  bigquery: {
+    partitionBy:"Date(OrderPlacedTimeStamp)",
+    clusterBy: ["CustomerID"]
+  }
+}
+
+
+pre_operations {
+  ${when(incremental(), 
+    "DECLARE max_load_date DATE DEFAULT (SELECT COALESCE(MAX(DATE(OrderPlacedTimeStamp)), DATE('2020-01-01')) FROM " + self() + " WHERE DATE(OrderPlacedTimeStamp) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY));", 
+    ""
+  )}
+}
+
+with base as (
+  SELECT 
+    OrderID,
+    PrimaryKey,
+    OrderPlacedTimeStamp,
+    OrderProcessedTimeStamp,
+    CAST(CONCAT(
+      EXTRACT(YEAR FROM OrderPlacedTimeStamp),
+      LPAD(CAST(EXTRACT(MONTH FROM OrderPlacedTimeStamp) AS STRING), 2, '0')
+    ) AS INT64) AS TransactionYearMonth,
+    CAST(CONCAT(
+      EXTRACT(YEAR FROM OrderPlacedTimeStamp),
+      LPAD(CAST(EXTRACT(WEEK FROM OrderPlacedTimeStamp) AS STRING), 2, '0')
+    ) AS INT64) AS TransactionYearWeek,
+    OrderAttributes,
+    CAST(CustomerDetails.CustomerID as int64) CustomerID,
+    CustomerDetails.CustomerEmail,
+    CustomerDetails.CustomerFullName,
+    CustomerDetails.ShippingLocationDetails.ShippingAddressCity as ShippingCity,
+    CustomerDetails.ShippingLocationDetails.ShippingAddressProvince as ShippingProvinceCode,
+    CustomerDetails.ShippingLocationDetails.ShippingAddressCountryCode as ShippingCountryCode,
+    case when (OrderStatus.IsCancelled = TRUE and SalesMeasures.IsReturnOrder = 1) then 'Cancelled'
+      when  (OrderStatus.IsCancelled = FALSE and SalesMeasures.IsReturnOrder = 1) then 'Returned'
+      else 'Completed'
+      end as Status,
+    OrderStatus.IsCancelled,
+    OrderStatus.IsSent,
+    OrderStatus.IsProcessed,
+    OrderStatus.CancelReason,
+    OrderStatus.FinancialStatus,
+    OrderStatus.FulfillmentStatus,
+    OrderStatus.FulfillmentType,
+    ProductDetails.ProductName,
+    ProductDetails.ProductCode,
+    ProductDetails.SkuCode,
+    ProductDetails.ProductVendor,
+    SalesMeasures.PresentmentCurrency as PresentmentCurrency, 
+    SalesMeasures.CurrencyCode as Currency, 
+    OrderAttributes.Payments, 
+    OrderAttributes.GiftCardUsed,  
+    SalesMeasures.GrossSalesValue,
+    SalesMeasures.NetSalesValue,
+    SalesMeasures.ReturnedSalesValue as RefundedSalesValue,
+    SalesMeasures.ShippingSalesValue,
+    SalesMeasures.TotalTaxSalesValue as TaxSalesValue,
+    SalesMeasures.GrossTaxSalesValue as GrossTaxSalesValue,
+    SalesMeasures.CancelledSalesValue,
+    SalesMeasures.DiscountedSalesValue,
+    SalesMeasures.GrossSalesQuantity,
+    SalesMeasures.NetSalesQuantity,
+    SalesMeasures.ShippingSalesQuantity,
+    SalesMeasures.TaxSalesQuantity,
+    SalesMeasures.ReturnedSalesQuantity as RefundedSalesQuantity,
+    SalesMeasures.CancelledSalesQuantity,
+    SalesMeasures.DiscountedSalesQuantity,
+    SalesMeasures.Demand,
+    SalesMeasures.GMV,
+    SalesMeasures.IsGrossOrder,
+    SalesMeasures.IsNetOrder,
+    SalesMeasures.IsReturnOrder
+
+
+FROM ${ref("sales_orders_silver_analytical_view")}
+WHERE 1=1
+AND OrderAttributes.StoreFront = 'creations'
+${when(incremental(), `and DATE(OrderUpdatedTimeStamp) > DATE_SUB(max_load_date, INTERVAL 7 DAY)`)}
+)
+
+, product_hack as (
+SELECT DISTINCT
+VariantSku,
+DropProductType,
+Category,
+Brand
+FROM ${ref("xfuze_product_silver")}
+QUALIFY ROW_NUMBER()OVER(PARTITION BY VariantSku ORDER BY ProductUpdatedAt desc, BQLoadTimeStamp desc) = 1
+) -- this is a hacky solution to get some of the product data in for situations where the order has no sku code, may be fixed in future
+
+-- customervalue
+SELECT
+  DATE_DIFF(DATE(OrderPlacedTimeStamp), '2006-01-15', WEEK) as WeekNumber,
+  UPPER(COALESCE(c.CustomerEmail, b.CustomerEmail)) as CustomerEmail, 
+  COALESCE(c.CustomerID, b.CustomerID) as CustomerID,
+  Null as CustomerCountry, --Placeholder for now
+  COALESCE(h.MasterOfUniverseMembership, 'N') as MasterOfUniverseMembership,
+  COALESCE(h.RLCMembership, 'N') as RLCMembership,
+  COALESCE(h.HotWheelsCollectorMembership, 'N') as HotWheelsCollectorMembership,
+  COALESCE(h.BarbieCollectorMembership, 'N') as BarbieCollectorMembership,
+  COALESCE(h.MonsterHighMembership, 'N') as MonsterHighMembership,
+  b.* except(CustomerEmail, ProductVendor, CustomerID),
+  ProductVendor as OriginalShopifyProductVendor,
+  CASE 
+    WHEN p.Brand IS NOT NULL THEN p.Brand
+    WHEN ph.Brand IS NOT NULL THEN ph.Brand 
+    WHEN ProductVendor = 'Hot Wheels Collectors' THEN 'Hot Wheels'
+    WHEN ProductVendor = 'Barbie Signature' THEN 'Barbie'
+    WHEN ProductVendor = 'Barbie the Movie' THEN 'Barbie the Movie'
+    WHEN ProductVendor IN ('Little People Collector', 'Little People Collectors') THEN 'Little People'
+    WHEN ProductVendor = 'Matchbox Collector' THEN 'Matchbox'
+    WHEN ProductVendor = 'Mighty Max' THEN 'MightyMax'
+    WHEN ProductVendor = 'MOTU Collectors' THEN 'MOTU'
+    WHEN ProductVendor = 'Polly Pocket Collector' THEN 'Polly Pocket'
+    WHEN ProductVendor = 'Disney' THEN 'Disney Doll'
+    ELSE ProductVendor
+  END as ProductVendor,
+  COALESCE(p.Category, ph.Category) as Category,
+  p.ProductType,
+  CASE 
+    WHEN b.ProductCode = 'Shipping' THEN 'Shipping'
+    WHEN COALESCE(p.DropProductType, ph.DropProductType) IS NOT NULL Then COALESCE(p.DropProductType, ph.DropProductType)
+    WHEN p.IsMembership is True THEN 'Membership'
+    ELSE 'Unknown' END as DropProductType,
+  c.GMV as CustomerLifeTimeGMV,
+  c.GrossDemand as CustomerLifeTimeGrossDemand,
+  c.NetDemand as CustomerLifeTimeNetDemand,
+  c.NetSalesValue as CustomerLifeTimeNetValue,
+  c.GrossSalesValue as CustomerLifeTimeGrossValue,
+  c.GrossSalesOrders as CustomerGrossSalesOrders,
+  c.NetSalesOrders as CustomerNetSalesOrders,
+  c.GrossFirstOrderTimeStamp as CustomerFirstOrderDate
+FROM base b
+LEFT JOIN ${ref("bi_single_view_of_customer_creations")} c 
+ON b.TransactionYearMonth = c.FiscalYearMonth
+AND UPPER(b.CustomerEmail) = UPPER(c.CustomerEmail)
+AND c.CustomerEmail Is not null
+LEFT JOIN ${ref("xfuze_product_silver")} p
+ON b.SkuCode = p.SkuCode
+LEFT JOIN product_hack ph
+ON b.ProductCode = ph.VariantSKU
+LEFT JOIN  ${ref("xfuze_consumer_master_history_silver")} h
+ON c.CustomerID = h.ConsumerID
+AND b.OrderPlacedTimeStamp < DATETIME(h.EventDateEnd)
+AND b.OrderPlacedTimeStamp >= DATETIME(h.EventDateStart)
+
+

@@ -1,0 +1,43 @@
+config {
+  type: "incremental",
+  schema: "xfuze_staging",
+  name: "cnsmr_addr_info_lower_silver",
+  description: "Consumer address information unpacked from raw Pub/Sub messages",
+  tags: ["customers", "daily"],
+  bigquery: {
+    partitionBy: "DATE(publish_time)",
+    clusterBy: ["CNSMR_ID"]
+  }
+}
+
+SELECT
+  SAFE_CAST(JSON_VALUE(data, '$.CNSMR_ADDR_ID') AS INT64) AS CNSMR_ADDR_ID,
+  SAFE_CAST(JSON_VALUE(data, '$.CNSMR_ID') AS INT64) AS CNSMR_ID,
+  JSON_VALUE(data, '$.ADDR_FRST_NM') AS ADDR_FRST_NM,
+  JSON_VALUE(data, '$.ADDR_LST_NM') AS ADDR_LST_NM,
+  JSON_VALUE(data, '$.ADDR_LN_1_TXT') AS ADDR_LN_1_TXT,
+  JSON_VALUE(data, '$.ADDR_LN_2_TXT') AS ADDR_LN_2_TXT,
+  JSON_VALUE(data, '$.CITY_NM') AS CITY_NM,
+  JSON_VALUE(data, '$.ZIP_CD') AS ZIP_CD,
+  JSON_VALUE(data, '$.STATE_NM') AS STATE_NM,
+  SAFE_CAST(JSON_VALUE(data, '$.CTRY_ID') AS INT64) AS CTRY_ID,
+  JSON_VALUE(data, '$.DFLT_IND') AS DFLT_IND,
+  JSON_VALUE(data, '$.ACTV_IND') AS ACTV_IND,
+  JSON_VALUE(data, '$.MAIL_SHR_IND') AS MAIL_SHR_IND,
+  JSON_VALUE(data, '$.MAIL_CTLG_IND') AS MAIL_CTLG_IND,
+  JSON_VALUE(data, '$.ADDR_TYP') AS ADDR_TYP,
+  JSON_VALUE(data, '$.BUS_NM') AS BUS_NM,
+  JSON_VALUE(data, '$.ADDR_VRFD') AS ADDR_VRFD,
+  JSON_VALUE(data, '$.ADDR_VRFD_DT') AS ADDR_VRFD_DT,
+  JSON_VALUE(data, '$.ADDR_SRC_VRFD') AS ADDR_SRC_VRFD,
+  JSON_VALUE(data, '$.CRTD_BY') AS CRTD_BY,
+  JSON_VALUE(data, '$.CRTD_DTTM') AS CRTD_DTTM,
+  JSON_VALUE(data, '$.UPDT_BY') AS UPDT_BY,
+  JSON_VALUE(data, '$.UPDT_DTTM') AS UPDT_DTTM,
+  JSON_VALUE(data, '$.CHILD_IND') AS CHILD_IND,
+  subscription_name,
+  message_id,
+  publish_time,
+  TO_JSON_STRING(attributes) AS attributes
+FROM ${ref('xfuze_consumer_master', "raw_cnsmr_addr_info")}
+${ when(incremental(), `WHERE publish_time > (SELECT MAX(publish_time) FROM ${self()})`) }

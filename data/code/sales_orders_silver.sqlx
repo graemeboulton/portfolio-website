@@ -1,0 +1,303 @@
+
+config {
+  type: "incremental",
+  tags: ["sales_orders", "daily"],
+  schema: "xfuze_sales_order",
+  description: "sales order union",
+  uniqueKey: ["PrimaryKey"],
+  assertions: {
+    uniqueKey: ["PrimaryKey"]},
+  bigquery: {
+    partitionBy: "DATE(OrderUpdatedTimeStamp)",
+    clusterBy: ["OrderID"]
+  }
+}
+
+pre_operations {
+  ${when(incremental(), 
+    "DECLARE max_load_date DATE DEFAULT (SELECT COALESCE(MAX(DATE(OrderUpdatedTimeStamp)), DATE('2020-01-01')) FROM " + self() + " WHERE DATE(OrderUpdatedTimeStamp) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY));", 
+    ""
+  )}
+}
+
+-- Common filter macro
+js {
+  const incrementalFilter = (alias = 'o') => {
+    return when(incremental(), `AND DATE(${alias}.OrderUpdatedTimeStamp) > DATE_SUB(max_load_date, INTERVAL 7 DAY)`, '');
+  };
+}
+
+with exchangerate as (
+SELECT
+         'us' AS locale, 
+        cast(1.00 as float64) AS ExchangeRate,
+         DATE '2000-01-01' AS StartDate,
+         DATE '2050-01-01' AS EndDate
+  UNION ALL
+SELECT 
+        'uk',
+         cast(1.08 as float64),
+         DATE '2000-01-01',
+         DATE '2026-01-18'
+  UNION ALL
+SELECT 
+        'uk',
+         cast(1.12 as float64),
+         DATE '2026-01-19',
+         DATE '2050-01-19'
+)
+
+, final AS (
+  SELECT 
+    OrderID,
+    OrderPlacedTimeStamp,
+    OrderUpdatedTimeStamp,
+    OrderProcessedTimeStamp,
+    PrimaryKey,
+
+    STRUCT(
+      OrderNumber,
+      Payments, --- added from Predict Spring
+      GiftCardUsed, --- added from Predict Spring
+      OrderSource,
+      StoreFront,
+      o.Locale
+    ) AS OrderAttributes,
+
+    STRUCT(
+      IsCancelled,
+      IsSent,
+      IsProcessed,
+      CancelReason,
+      FinancialStatus,
+      FulfillmentStatus,
+      FulfillmentType
+    ) AS OrderStatus,
+
+    STRUCT(
+      CustomerID,
+      CustomerEmail,
+      CustomerPhone,
+      CONCAT(CustomerFirstName, ' ', CustomerLastName) AS CustomerFullName,
+      STRUCT(
+        ShippingAddressAddress1,
+        ShippingAddressAddress2,
+        ShippingAddressCity,
+        ShippingAddressProvince,
+        ShippingAddressCountry,
+        ShippingAddressCountryCode,
+        ShippingAddressZip,
+        ShippingAddressPhone
+      ) AS ShippingLocationDetails,
+      STRUCT(
+        RLCTag,
+        NewsletterTag,
+        ProspectTag,
+        ShopTag
+      ) AS CustomerTags
+    ) AS CustomerDetails,
+
+    ----- Adding for Predict Spring
+    -- Store Address 
+    STRUCT(
+        StoreId,
+        StoreName,
+        StoreType,
+        StoreAddressLine1, 
+        StoreAddressLine2, 
+        StoreCity, 
+        StoreState, 
+        StoreCountryCode, 
+        StoreZip, 
+        AGStoreFlag
+    ) AS StoreDetails, 
+
+    ----- Adding for Predict Spring
+    -- Merchant Details
+    STRUCT(
+        OperatorId,
+        RegisterId,
+        TransactionId,
+        StoreAssociateId
+    ) AS MerchantDetails,
+
+    STRUCT(
+      ProductName,
+      ProductTitle,
+      ProductCode,
+      SkuCode,
+      ProductVendor
+    ) AS ProductDetails,
+
+    STRUCT(
+      CurrencyCode,
+      CurrencyCode as PresentmentCurrency,
+      (AttributedOrderShopDiscount * ER.ExchangeRate) as AttributedOrderShopDiscount,
+      (AttributedOrderPresentmentDiscount * ER.ExchangeRate) as AttributedOrderPresentmentDiscount,
+      IsGrossOrder,
+      IsNetOrder,
+      IsReturnOrder,
+      IsExchangeOrder,
+      
+      -- Gross Sales Value
+      ROUND((CASE         
+        WHEN SaleShopValueBeforeDiscountPreTax > 0 AND QuantitySold > 0 AND ProductCode != 'Shipping' 
+        THEN SaleShopValueBeforeDiscountPreTax * QuantitySold
+        ELSE 0
+      END* ER.ExchangeRate), 2) AS GrossSalesValue,
+      
+      -- Net Sales Value = Gross - Returns - Discounts
+      ROUND((
+        (CASE 
+          WHEN SaleShopValueBeforeDiscountPreTax > 0 AND QuantitySold > 0 AND ProductCode != 'Shipping' 
+          THEN SaleShopValueBeforeDiscountPreTax * QuantitySold
+          ELSE 0
+        END -
+        CASE 
+          WHEN QuantityReturned > 0 AND ProductCode != 'Shipping'
+          THEN ((ReturnedShopValuePreTax * QuantityReturned) + COALESCE(AttributedOrderShopDiscount, 0)) 
+          ELSE 0
+        END -
+        CASE 
+          WHEN (DiscountShopValue > 0 OR AttributedOrderShopDiscount > 0) AND ProductCode != 'Shipping'
+          THEN DiscountShopValue + COALESCE(AttributedOrderShopDiscount, 0)
+          ELSE 0
+        END) * ER.ExchangeRate), 2
+      ) AS NetSalesValue,
+      
+      -- Returned Sales Value
+      ROUND((CASE 
+        WHEN QuantityReturned > 0 AND ProductCode != 'Shipping'
+        THEN ((ReturnedShopValuePreTax * QuantityReturned) + COALESCE(AttributedOrderShopDiscount, 0)) * -1
+        ELSE 0
+      END* ER.ExchangeRate), 2) AS ReturnedSalesValue,
+      
+      -- Cancelled Sales Value
+      ROUND(
+        CASE 
+          WHEN IsCancelled = TRUE AND ProductCode != 'Shipping'
+          THEN (CancelledShopValuePreTax + COALESCE(AttributedOrderShopDiscount, 0)) * QuantityCancelled 
+          ELSE 0
+        END * ER.ExchangeRate
+      , 2) AS CancelledSalesValue,
+      
+      -- Discounted Sales Value
+      ROUND((CASE 
+        WHEN (DiscountShopValue > 0 OR AttributedOrderShopDiscount > 0) AND ProductCode != 'Shipping'
+        THEN DiscountShopValue + COALESCE(AttributedOrderShopDiscount, 0)
+        ELSE 0
+      END* ER.ExchangeRate) , 2)AS DiscountedSalesValue,
+      
+      -- Tax values
+      (TaxLinesShopAmount * ER.ExchangeRate) as GrossTaxSalesValue,
+      ROUND((TaxLinesShopAmount - TaxLinesRefundedAmount)* ER.ExchangeRate, 2) AS TotalTaxSalesValue,
+      
+      -- Shipping Sales Value
+      CASE WHEN ProductCode = 'Shipping' THEN SaleShopValueBeforeDiscountPreTax END AS ShippingSalesValue,
+      
+      -- Quantities
+      CASE 
+        WHEN SaleShopValueBeforeDiscountPreTax > 0 AND QuantitySold > 0 AND ProductCode != 'Shipping'
+        THEN QuantitySold
+        ELSE 0
+      END AS GrossSalesQuantity,
+      
+      CASE 
+        WHEN ProductCode != 'Shipping'
+        THEN COALESCE(QuantitySold, 0) - COALESCE(QuantityReturned, 0)
+        ELSE 0
+      END AS NetSalesQuantity,
+      
+      CASE 
+        WHEN QuantityReturned > 0 AND ProductCode != 'Shipping'
+        THEN QuantityReturned * -1
+        ELSE 0
+      END AS ReturnedSalesQuantity,
+      
+      CASE 
+        WHEN IsCancelled = TRUE AND ProductCode != 'Shipping'
+        THEN QuantityCancelled * -1
+        ELSE 0
+      END AS CancelledSalesQuantity,
+      
+      CASE 
+        WHEN (DiscountShopValue > 0 OR AttributedOrderShopDiscount > 0) AND ProductCode != 'Shipping'
+        THEN QuantitySold
+        ELSE 0
+      END AS DiscountedSalesQuantity,
+      
+      CASE 
+        WHEN ProductCode != 'Shipping'
+        THEN QuantitySold
+        ELSE 0
+      END AS TaxSalesQuantity,
+      
+      CASE 
+        WHEN ProductCode = 'Shipping'
+        THEN QuantitySold
+        ELSE 0
+      END AS ShippingSalesQuantity,
+      
+      -- Demand = Gross - Discounts
+      ROUND((
+        (CASE 
+          WHEN SaleShopValueBeforeDiscountPreTax > 0 AND QuantitySold > 0 AND ProductCode != 'Shipping'
+          THEN SaleShopValueBeforeDiscountPreTax * QuantitySold
+          ELSE 0
+        END -
+        CASE 
+          WHEN (DiscountShopValue > 0 OR AttributedOrderShopDiscount > 0) AND ProductCode != 'Shipping'
+          THEN DiscountShopValue + COALESCE(AttributedOrderShopDiscount, 0)
+          ELSE 0
+        END) * ER.ExchangeRate), 2
+      ) AS Demand,
+
+      -- GMV = Net Sales + Shipping - Cancelled
+      ROUND((
+        -- Net product sales
+        (CASE 
+          WHEN SaleShopValueBeforeDiscountPreTax > 0 AND QuantitySold > 0 AND ProductCode != 'Shipping'
+          THEN SaleShopValueBeforeDiscountPreTax * QuantitySold
+          ELSE 0
+        END -
+        CASE 
+          WHEN QuantityReturned > 0  AND IsCancelled = FALSE AND ProductCode != 'Shipping'
+          THEN ((ReturnedShopValuePreTax * QuantityReturned) + COALESCE(AttributedOrderShopDiscount, 0)) 
+          ELSE 0
+        END -
+        CASE 
+          WHEN (DiscountShopValue > 0 OR AttributedOrderShopDiscount > 0) AND ProductCode != 'Shipping'
+          THEN DiscountShopValue + COALESCE(AttributedOrderShopDiscount, 0)
+          ELSE 0
+        END
+      +
+        -- Plus shipping revenue
+      CASE 
+        WHEN ProductCode = 'Shipping' 
+        THEN SaleShopValueBeforeDiscountPreTax - AttributedOrderShopDiscount - ReturnedShopValuePreTax - CancelledShopValuePreTax
+        ELSE 0
+      END -
+        -- Minus cancelled orders
+      CASE 
+        WHEN IsCancelled = TRUE 
+        THEN (CancelledShopValuePreTax + COALESCE(AttributedOrderShopDiscount, 0)) * QuantityCancelled 
+        ELSE 0
+      END) * ER.ExchangeRate)
+      ,2) AS GMV
+      
+    ) AS SalesMeasures
+
+  FROM ${ref("sales_orders_predict_spring_silver_union")} o
+
+
+  LEFT JOIN exchangerate er
+  ON o.locale = er.locale
+  AND date(OrderPlacedTimeStamp)
+     BETWEEN er.StartDate
+     AND er. EndDate
+     
+  where 1=1
+  ${incrementalFilter()}
+)
+
+SELECT * FROM final

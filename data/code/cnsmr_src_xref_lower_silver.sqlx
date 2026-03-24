@@ -1,0 +1,26 @@
+config {
+  type: "incremental",
+  schema: "xfuze_staging",
+  name: "cnsmr_src_xref_lower_silver",
+  description: "Consumer source cross-reference information unpacked from raw Pub/Sub messages",
+  tags: ["customers", "daily"],
+  uniqueKey: ["CNSMR_ID", "SRC_ACQ_ID"],
+  bigquery: {
+    partitionBy: "DATE(publish_time)",
+    clusterBy: ["CNSMR_ID"]
+  }
+}
+
+SELECT
+  SAFE_CAST(JSON_VALUE(data, '$.CNSMR_ID') AS INT64) AS CNSMR_ID,
+  SAFE_CAST(JSON_VALUE(data, '$.SRC_ACQ_ID') AS INT64) AS SRC_ACQ_ID,
+  JSON_VALUE(data, '$.CRTD_BY') AS CRTD_BY,
+  JSON_VALUE(data, '$.CRTD_DTTM') AS CRTD_DTTM,
+  JSON_VALUE(data, '$.UPDT_BY') AS UPDT_BY,
+  JSON_VALUE(data, '$.UPDT_DTTM') AS UPDT_DTTM,
+  subscription_name,
+  message_id,
+  publish_time,
+  TO_JSON_STRING(attributes) AS attributes
+FROM ${ref('xfuze_consumer_master', "raw_cnsmr_src_xref")}
+${ when(incremental(), `WHERE publish_time > (SELECT MAX(publish_time) FROM ${self()})`) }

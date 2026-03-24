@@ -1,0 +1,8 @@
+config {
+    type: "declaration",
+    database: dataform.projectConfig.vars.integrationDatabase,
+    schema: "xfuze_mattel_shopify",
+    name: "ps_shopify_products"
+}
+
+--- this table is uat only---

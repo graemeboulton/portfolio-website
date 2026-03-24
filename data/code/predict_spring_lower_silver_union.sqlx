@@ -1,0 +1,44 @@
+config {
+  type: "table",
+  tags: ["sales_orders", "daily"],
+  schema: "xfuze_predict_spring",
+  description: "predict spring union - historical and incremental",
+  assertions: {
+    uniqueKey: ["PRIMARY_KEY"]},
+  bigquery: {
+    partitionBy: "DATE(LOAD_DATE)"
+  }
+}
+
+-- add this back after
+
+-- pre_operations {
+--   -- Create a variable to store the max date
+--   DECLARE max_load_date DATE DEFAULT (
+--     SELECT COALESCE(MAX(DATE(BQLoadTimeStamp)), DATE('2020-01-01'))
+--     FROM ${self()}
+--     WHERE DATE(BQLoadTimeStamp) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY)
+--   )
+--   ${when(incremental(), "", ";")}
+-- }
+
+
+with new_orders as (
+SELECT 
+*
+FROM ${ref("predict_spring_lower_silver_incremental")}
+WHERE 
+DATE(PARSE_DATETIME("%m/%d/%Y %H:%M:%S", TRANSACTION_DATE)) >= '2025-11-09'
+--${when(incremental(), `AND DATE(LOAD_DATE) > DATE_SUB(max_load_date, INTERVAL 2 DAY)`)}
+)
+
+SELECT
+*
+FROM new_orders
+
+UNION ALL 
+
+SELECT 
+*
+FROM ${ref("predict_spring_lower_silver")}
+WHERE Order_ID NOT IN (SELECT DISTINCT COALESCE(order_id, 'na') FROM new_orders)

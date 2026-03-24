@@ -1,0 +1,343 @@
+config {
+  type: "incremental",
+  tags: ["sales_orders", "daily"],
+  schema: "xfuze_sales_order",
+  description: "Sales orders cleaned with business logic applied",
+  uniqueKey: ["PrimaryKey"],
+  assertions: {
+    uniqueKey: ["PrimaryKey"]},
+  bigquery: {
+    partitionBy: "DATE(OrderUpdatedTimeStamp)",
+    clusterBy: ["OrderID"]
+  }
+}
+
+
+pre_operations {
+  ${when(incremental(), 
+    "DECLARE max_load_date DATE DEFAULT (SELECT COALESCE(MAX(DATE(OrderUpdatedTimeStamp)), DATE('2020-01-01')) FROM " + self() + " WHERE DATE(OrderUpdatedTimeStamp) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY));", 
+    ""
+  )}
+}
+
+-- Common filter macro
+js {
+  const incrementalFilter = (alias = 'o') => {
+    return when(incremental(), `AND DATE(${alias}.BqLoadTimeStamp) > DATE_SUB(max_load_date, INTERVAL 7 DAY)`, '');
+  };
+}
+
+-- Common base fields to avoid repetition
+with base_order_fields AS (
+  SELECT
+    o.*,
+    (SELECT r.RefundCreatedAt FROM UNNEST(o.Refunds) r ORDER BY RefundCreatedAt DESC LIMIT 1) AS LastRefundTimestamp,
+    (SELECT T FROM UNNEST(o.Tags) T WHERE T = '"SENT"' LIMIT 1) AS IsSent,
+    (SELECT T FROM UNNEST(o.Tags) T WHERE T = '"processed"' LIMIT 1) AS IsProcessed,
+    (SELECT ct FROM UNNEST(o.customertags) ct WHERE ct = 'RLC' LIMIT 1) AS RLCTag,
+    (SELECT ct FROM UNNEST(o.customertags) ct WHERE ct = 'newsletter' LIMIT 1) AS NewsletterTag,
+    (SELECT ct FROM UNNEST(o.customertags) ct WHERE ct = 'prospect' LIMIT 1) AS ProspectTag,
+    (SELECT ct FROM UNNEST(o.customertags) ct WHERE ct = 'shop' LIMIT 1) AS ShopTag,
+    (SELECT SUM(ol.OriginalUnitPriceShopAmount - ol.DiscountedUnitPriceShopAmount) 
+     FROM UNNEST(o.LineItems) ol) AS UnitTotalDiscountShop,
+    (SELECT SUM(ol.OriginalUnitPricePresentmentAmount - ol.DiscountedUnitPricePresentmentAmount) 
+     FROM UNNEST(o.LineItems) ol) AS UnitTotalDiscountPresentment,
+    o.TotalPriceShopMoneyAmount = (SELECT SUM(r.TotalRefundedShopMoneyAmount) FROM UNNEST(Refunds) r) as FullReturn
+  FROM ${ref("sales_lower_silver_union")} o
+  WHERE o.TestOrder = FALSE
+    ${incrementalFilter()}
+)
+
+-- Shipping line items
+,shippinglines_clean AS (
+  SELECT 
+    o.OrderID,
+    CONCAT(o.OrderID, 'Ship') AS PrimaryKey,
+    o.BQLoadTimeStamp,
+    o.OrderName AS OrderNumber,
+    o.DataSource AS OrderSource,
+    o.StoreFront,
+    o.Locale,
+    o.CreatedAt AS OrderPlacedTimeStamp,
+    o.ProcessedAt AS OrderProcessedTimeStamp,
+    o.UpdatedAt AS OrderUpdatedTimeStamp,
+    o.CancelledAt AS OrderCancelledTimeStamp,
+    (SELECT r.refundcreatedat FROM UNNEST(refunds) r ORDER BY r.refundcreatedat desc LIMIT 1) as RefundCreatedAtTimeStamp,
+    o.CancelledAt IS NOT NULL AS IsCancelled,
+    o.IsSent,
+    o.IsProcessed,
+    o.CancelReason,
+    o.FinancialStatus,
+    o.FulfillmentStatus AS FulfillmentStatus,
+    'ONLINE' as FulfillmentType,
+    
+    -- Customer fields
+    o.CustomerID,
+    UPPER(o.CustomerFirstName) AS CustomerFirstName,
+    UPPER(o.CustomerLastName) AS CustomerLastName,
+    LOWER(o.CustomerEmail) AS CustomerEmail,
+    o.CustomerPhone,
+    UPPER(o.CustomerState) AS CustomerState,
+    o.CustomerVerifiedEmail,
+    o.CustomerTaxExempt,
+    o.RLCTag,
+    o.NewsletterTag,
+    o.ProspectTag,
+    o.ShopTag,
+    
+    -- Shipping address
+    o.ShippingAddressAddress1,
+    o.ShippingAddressAddress2,
+    o.ShippingAddressCity,
+    o.ShippingAddressProvince,
+    o.ShippingAddressCountry,
+    o.ShippingAddressCountryCodeV2 AS ShippingAddressCountryCode,
+    o.ShippingAddressZip,
+    o.ShippingAddressPhone,
+
+    -- Store Address 
+    CAST(NULL AS STRING) AS  StoreId,
+    CAST(NULL AS STRING) AS  StoreName,
+    CAST(NULL AS STRING) AS  StoreType,
+    CAST(NULL AS STRING) AS  StoreAddressLine1, 
+    CAST(NULL AS STRING) AS StoreAddressLine2, 
+    CAST(NULL AS STRING) AS StoreCity, 
+    CAST(NULL AS STRING) AS StoreState, 
+    CAST(NULL AS STRING) AS StoreCountryCode, 
+    CAST(NULL AS STRING) AS StoreZip,
+    CAST(NULL AS BOOL) AS  AGStoreFlag,
+
+    -- Merchant Details
+    CAST(NULL AS STRING) AS OperatorId,
+    CAST(NULL AS STRING) AS RegisterId,
+    CAST(NULL AS STRING) AS TransactionId,
+    CAST(NULL AS STRING) AS StoreAssociateId,
+
+    -- Product fields (all 'Shipping')
+    'Shipping' AS ProductName,
+    'Shipping' AS ProductTitle,
+    'Shipping' AS ProductCode,
+    'Shipping' AS SkuCode,
+    'Shipping' AS ProductVendor,
+
+    -- Order type flags
+    1 AS IsGrossOrder,
+    0 AS IsReturnOrder,
+    1 AS IsNetOrder,
+    0 AS IsExchangeOrder,
+
+    -- Currency
+    o.CurrencyCode,
+    o.SubtotalPricePresentmentCurrency AS PresentmentCurrency,
+    
+    -- Discount fields
+    o.TotalDiscountsShopMoneyAmount AS OrderTotalDiscountShopValue,
+    o.TotalDiscountsShopMoneyAmount AS OrderTotalDiscountPresentmentValue,
+    o.UnitTotalDiscountShop AS UnitTotalDiscountShopValue,
+    o.UnitTotalDiscountPresentment AS UnitTotalDiscountPresentmentValue,
+
+    -- Attributed order discount
+    CASE 
+      WHEN o.SubtotalPricePresentmentMoneyAmount = o.UnitTotalDiscountPresentment
+        AND o.UnitTotalDiscountPresentment < o.TotalDiscountsPresentmentMoneyAmount
+      THEN o.TotalDiscountsPresentmentMoneyAmount - o.UnitTotalDiscountPresentment
+      ELSE 0 
+    END AS AttributedOrderPresentmentDiscount,
+    o.TotalShippingPriceShopMoneyAmount - 
+      (o.TotalPriceShopMoneyAmount - o.SubtotalPriceShopMoneyAmount - o.TotalTaxShopMoneyAmount) 
+      AS AttributedOrderShopDiscount,
+
+    -- Pricing
+    1 AS QuantitySold,
+    COALESCE(o.TotalShippingPriceShopMoneyAmount, 0) AS SaleShopValueBeforeDiscountPreTax,
+    COALESCE(o.TotalShippingPriceShopMoneyAmount, 0) AS SaleShopValueAfterDiscountPreTax,
+    COALESCE(o.TotalShippingPricePresentmentMoneyAmount, 0) AS SalePresentmentValueBeforeDiscountPreTax,
+    COALESCE(o.TotalShippingPricePresentmentMoneyAmount, 0) AS SalePresentmentValueAfterDiscountPreTax,
+
+    -- Returns and cancellations
+    0 AS QuantityReturned,
+    0 AS ReturnedShopValuePreTax,
+    0 AS QuantityCancelled,
+    0 AS CancelledShopValuePreTax,
+
+    -- Discounts
+    0 AS DiscountShopValue,
+
+    -- Tax (shipping tax = total tax - line item tax)
+    COALESCE(o.TotalTaxShopMoneyAmount, 0) - 
+      COALESCE((SELECT SUM((SELECT IFNULL(SUM(tax.ShopMoneyAmount), 0) 
+                            FROM UNNEST(l.TaxLines) tax)) 
+                FROM UNNEST(o.LineItems) l), 0) AS TaxLinesShopAmount,
+    COALESCE(o.TotalTaxPresentmentMoneyAmount, 0) - 
+      COALESCE((SELECT SUM((SELECT IFNULL(SUM(tax.PresentmentMoneyAmount), 0) 
+                            FROM UNNEST(l.TaxLines) tax)) 
+                FROM UNNEST(o.LineItems) l), 0) AS TaxLinesPresentmentAmount,
+    0 TaxLinesRefundedAmount,
+    0 TaxLinesCancelledAmount,
+
+      
+    -- Payment Details
+    ARRAY(select
+        STRUCT(PaymentGatewayNames AS   PaymentSource,  
+          CAST(NULL AS STRING) AS   CardType
+        )) AS Payments,  
+    CAST(NULL AS BOOL) AS   GiftCardUsed
+    
+    
+  FROM base_order_fields o
+  WHERE (o.TotalShippingPriceShopMoneyAmount > 0 OR o.TotalShippingPricePresentmentMoneyAmount > 0)
+),
+
+return_shippinglines AS (
+  SELECT 
+    r.RefundID as OrderID,
+    CONCAT(o.OrderID, COALESCE(r.RefundID, '_'), 'ShipRefund') AS PrimaryKey,
+    o.BQLoadTimeStamp,
+    o.OrderName AS OrderNumber,
+    o.DataSource AS OrderSource,
+    o.StoreFront,
+    o.Locale,
+    COALESCE(r.RefundCreatedAt, o.CancelledAt) AS OrderPlacedTimeStamp,
+    o.ProcessedAt AS OrderProcessedTimeStamp,
+    o.UpdatedAt AS OrderUpdatedTimeStamp,
+    o.CancelledAt AS OrderCancelledTimeStamp,
+    r.RefundCreatedAt AS RefundTimeStamp,
+    o.CancelledAt IS NOT NULL AS IsCancelled,
+    o.IsSent,
+    o.IsProcessed,
+    o.CancelReason,
+    o.FinancialStatus,
+    o.FulfillmentStatus,
+    'ONLINE' as FulfillmentType,
+    
+    -- Customer fields
+    o.CustomerID,
+    UPPER(o.CustomerFirstName) AS CustomerFirstName,
+    UPPER(o.CustomerLastName) AS CustomerLastName,
+    LOWER(o.CustomerEmail) AS CustomerEmail,
+    o.CustomerPhone,
+    UPPER(o.CustomerState) AS CustomerState,
+    o.CustomerVerifiedEmail,
+    o.CustomerTaxExempt,
+    o.RLCTag,
+    o.NewsletterTag,
+    o.ProspectTag,
+    o.ShopTag,
+    
+    -- Shipping address
+    o.ShippingAddressAddress1,
+    o.ShippingAddressAddress2,
+    o.ShippingAddressCity,
+    o.ShippingAddressProvince,
+    o.ShippingAddressCountry,
+    o.ShippingAddressCountryCodeV2 AS ShippingAddressCountryCode,
+    o.ShippingAddressZip,
+    o.ShippingAddressPhone,
+
+    -- Store Address 
+    CAST(NULL AS STRING) AS  StoreId,
+    CAST(NULL AS STRING) AS  StoreName,
+    CAST(NULL AS STRING) AS  StoreType,
+    CAST(NULL AS STRING) AS  StoreAddressLine1, 
+    CAST(NULL AS STRING) AS StoreAddressLine2, 
+    CAST(NULL AS STRING) AS StoreCity, 
+    CAST(NULL AS STRING) AS StoreState, 
+    CAST(NULL AS STRING) AS StoreCountryCode, 
+    CAST(NULL AS STRING) AS StoreZip,
+    CAST(NULL AS BOOL) AS  AGStoreFlag,
+
+    -- Merchant Details
+    CAST(NULL AS STRING) AS OperatorId,
+    CAST(NULL AS STRING) AS RegisterId,
+    CAST(NULL AS STRING) AS TransactionId,
+    CAST(NULL AS STRING) AS StoreAssociateId,
+
+    -- Product fields (all 'Shipping')
+    'Shipping' AS ProductName,
+    'Shipping' AS ProductTitle,
+    'Shipping' AS ProductCode,
+    'Shipping' AS SkuCode,
+    'Shipping' AS ProductVendor,
+
+    -- Order type flags
+    0 AS IsGrossOrder,
+    1 AS IsReturnOrder,
+    1 AS IsNetOrder,
+    0 AS IsExchangeOrder,
+
+    -- Currency
+    o.CurrencyCode,
+    o.SubtotalPricePresentmentCurrency AS PresentmentCurrency,
+    
+    -- Discount fields
+    o.TotalDiscountsShopMoneyAmount AS OrderTotalDiscountShopValue,
+    o.TotalDiscountsShopMoneyAmount AS OrderTotalDiscountPresentmentValue,
+    o.UnitTotalDiscountShop AS UnitTotalDiscountShopValue,
+    o.UnitTotalDiscountPresentment AS UnitTotalDiscountPresentmentValue,
+
+    -- Attributed order discount
+    CASE 
+      WHEN o.SubtotalPricePresentmentMoneyAmount = o.UnitTotalDiscountPresentment
+        AND o.UnitTotalDiscountPresentment < o.TotalDiscountsPresentmentMoneyAmount
+      THEN o.TotalDiscountsPresentmentMoneyAmount - o.UnitTotalDiscountPresentment
+      ELSE 0 
+    END AS AttributedOrderPresentmentDiscount,
+    o.TotalShippingPriceShopMoneyAmount - 
+      (o.TotalPriceShopMoneyAmount - o.SubtotalPriceShopMoneyAmount - o.TotalTaxShopMoneyAmount) 
+      AS AttributedOrderShopDiscount,
+
+    -- Pricing
+    0 AS QuantitySold,
+    0 AS SaleShopValueBeforeDiscountPreTax,
+    0 AS SaleShopValueAfterDiscountPreTax,
+    0 AS SalePresentmentValueBeforeDiscountPreTax,
+    0 AS SalePresentmentValueAfterDiscountPreTax,
+
+    -- Returns and cancellations
+    CASE WHEN o.CancelledAt IS NULL THEN 1 ELSE 0 END AS QuantityReturned,
+    CASE WHEN o.CancelledAt IS NULL THEN o.TotalShippingPriceShopMoneyAmount ELSE 0 END AS ReturnedShopValuePreTax,
+    CASE WHEN o.CancelledAt IS NOT NULL THEN 1 ELSE 0 END AS QuantityCancelled,
+    CASE WHEN o.CancelledAt IS NOT NULL THEN o.TotalShippingPriceShopMoneyAmount ELSE 0 END AS CancelledShopValuePreTax,
+
+    -- Discounts
+    0 AS DiscountShopValue,
+
+    -- Tax (shipping tax = total tax - line item tax)
+    0 AS TaxLinesShopAmount,
+    0 AS TaxLinesPresentmentAmount,
+      COALESCE(o.TotalTaxShopMoneyAmount, 0) - 
+           COALESCE((SELECT SUM((SELECT IFNULL(SUM(tax.ShopMoneyAmount), 0) 
+                                 FROM UNNEST(l.TaxLines) tax)) 
+                     FROM UNNEST(o.LineItems) l), 0)  AS TaxLinesRefundedAmount,
+     CASE WHEN CancelledAt IS NOT NULL THEN COALESCE(o.TotalTaxShopMoneyAmount, 0) - 
+           COALESCE((SELECT SUM((SELECT IFNULL(SUM(tax.ShopMoneyAmount), 0) 
+                                 FROM UNNEST(l.TaxLines) tax)) 
+                     FROM UNNEST(o.LineItems) l), 0) 
+                     ELSE 0 END AS TaxLinesCancelledAmount,
+      
+    -- Payment Details
+    ARRAY(select
+        STRUCT(PaymentGatewayNames AS   PaymentSource,  
+          CAST(NULL AS STRING) AS   CardType
+        )) AS Payments,  
+    CAST(NULL AS BOOL) AS   GiftCardUsed
+    
+  FROM base_order_fields o
+  LEFT JOIN UNNEST(Refunds) r WITH OFFSET as refund_position
+  WHERE (o.TotalShippingPriceShopMoneyAmount > 0 OR o.TotalShippingPricePresentmentMoneyAmount > 0)
+  AND (CancelledAt is not null 
+  OR FullReturn = True)
+  AND ARRAY_LENGTH(o.Refunds) - refund_position = 1
+)
+
+-- Combine all line types
+
+  SELECT * FROM ${ref("sales_orders_saleslines")}
+  UNION ALL
+  SELECT * FROM ${ref("sales_orders_returnlines")}
+  UNION ALL 
+  SELECT * FROM return_shippinglines
+  UNION ALL
+  SELECT * FROM shippinglines_clean  
+  UNION ALL
+  SELECT * FROM ${ref("predict_spring_silver")}

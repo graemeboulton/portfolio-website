@@ -1,0 +1,51 @@
+config {
+type: "table",
+schema: "xfuze_staging",
+description: "Historic consumer loyalty information from Blueconic",
+tags: ["customers"]
+}
+
+with customer as (
+select distinct
+CRTD_BY,
+CNSMR_ID
+from ${ref('cnsmr_mbrshp_info_lower_silver')}
+)
+
+
+SELECT
+  lm.MBRSHP_ID AS MBRSHP_ID,
+  p.consumer_id AS CNSMR_ID,
+  CAST(NULL AS int64) AS MBRSHP_SNC_YR,
+  DATE(TIMESTAMP_MILLIS(mbr_start_date)) AS MBRSHP_STRT_DT,
+  DATE(TIMESTAMP_MILLIS(mbr_end_date)) AS MBRSHP_END_DT,
+  CAST(NULL AS int64) AS MBRSHP_NBR,
+  CAST(NULL AS STRING) AS FVRT_PRDCT_NM,
+  CAST(NULL AS STRING) AS FVRT_PRDCT_DESC,
+  CAST(NULL AS STRING) AS FOCUS_AREA_DESC,
+  CAST(NULL AS STRING) AS USR_DSPLY_NM,
+  CAST(NULL AS STRING) AS PLUCK_REF_USR_ID,
+  CAST(NULL AS FLOAT64) AS MBRSHP_ACCUM_PT_CNT,
+  CAST(NULL AS FLOAT64) AS MBRSHP_RDM_PT_CNT,
+  c.CRTD_BY AS CRTD_BY,
+  DATETIME(TIMESTAMP_MILLIS(mbr_start_date),  "America/Los_Angeles") AS CRTD_DTTM,
+  'Blueconic' as UPDT_BY,
+  DATETIME(
+      TIMESTAMP_MILLIS(mbr_update_date),
+      "America/Chicago"
+  ) AS UPDT_DTTM,
+  CAST(NULL AS STRING) as subscription_name,
+  CAST(NULL AS STRING) as message_id,
+  current_timestamp() as publish_time,
+  CAST(NULL AS STRING) as attributes
+
+from ${ref('sm_membership_history_membership_info')} m
+
+left join ${ref('sm_membership_history')} p
+on m.profileId = p.bc_id
+
+left join customer c
+on p.consumer_id = c.CNSMR_ID
+
+left join ${ref('mbrshp_mstr_lower_silver')} lm
+on m.mbr_club_name = lm.MBRSHP_CLB_NM

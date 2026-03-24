@@ -1,0 +1,30 @@
+config {
+    type: "assertion",
+    tags: ["qa"]
+}
+
+WITH
+  MismatchRows AS (
+  SELECT
+    *
+  FROM (
+    SELECT
+      DISTINCT sa.ProductCode AS saProductCode,
+      sa.SkuCode AS saSkuCode,
+      pd.ProductCode AS pdProductCode,
+      pd.SkuCode AS pdSkuCode
+    FROM
+      ${ref("xfuze_product_silver")} sa
+    LEFT JOIN
+      `xfuze-mattel-uat.xfuze_product.xfuze_product_silver` pd
+    ON
+      sa.SkuCode = pd.SkuCode
+      AND sa.ProductCode = pd.ProductCode)
+  WHERE
+    pdSkuCode IS NULL)
+SELECT
+  COUNT(*) AS cnt
+FROM
+  MismatchRows
+HAVING
+  cnt > 0

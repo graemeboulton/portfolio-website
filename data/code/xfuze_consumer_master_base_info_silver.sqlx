@@ -1,0 +1,231 @@
+config {
+  type: "table",
+  tags: ["customers", "daily"],
+  assertions: {
+    uniqueKey: ["ConsumerID"]},
+  schema: "xfuze_customer",
+  description: "customer data current and historical",
+}
+
+
+-- Create CTEs for each source table with their date ranges
+WITH base_info AS (
+  SELECT
+    ARRAY_AGG(e ORDER BY Publish_Time DESC, UPDT_DTTM DESC, CRTD_DTTM DESC LIMIT 1)[OFFSET(0)].*
+  FROM (
+    SELECT
+      CNSMR_ID, 
+      CNSMR_BRTH_DT, 
+      CNSMR_GNDR_CD, 
+      CNSMR_CHLD_IND, 
+      AG_AFLTN_IND, 
+      MTTL_AFLTN_IND, 
+      EMAIL_ADDR_VAL, 
+      AG_MYACCT_IND, 
+      MTTL_MYACCT_IND, 
+      MTTL_LOGIN_MYACCT_IND, 
+      GEO_ZIP_CD, 
+      ACTV_IND, 
+      GDPR_IND, 
+      DP_SHR_IND, 
+      CRTD_BY, 
+      CAST(CRTD_DTTM AS TIMESTAMP) AS CRTD_DTTM, 
+      UPDT_BY, 
+      CAST(UPDT_DTTM AS TIMESTAMP) AS UPDT_DTTM, 
+      subscription_name, 
+      message_id, 
+      publish_time, 
+      attributes
+    FROM ${ref('cnsmr_info_lower_silver')}
+    WHERE ACTV_IND = 'Y'
+
+    UNION ALL
+
+    SELECT
+      CNSMR_ID, 
+      CNSMR_BRTH_DT, 
+      CNSMR_GNDR_CD, 
+      CNSMR_CHLD_IND, 
+      AG_AFLTN_IND, 
+      MTTL_AFLTN_IND, 
+      EMAIL_ADDR_VAL, 
+      AG_MYACCT_IND, 
+      MTTL_MYACCT_IND, 
+      MTTL_LOGIN_MYACCT_IND, 
+      GEO_ZIP_CD, 
+      ACTV_IND, 
+      GDPR_IND, 
+      DP_SHR_IND,  
+      CRTD_BY, 
+      CAST(CRTD_DTTM AS TIMESTAMP) AS CRTD_DTTM, 
+      UPDT_BY, 
+      CAST(UPDT_DTTM AS TIMESTAMP) AS UPDT_DTTM, 
+      subscription_name, 
+      message_id, 
+      publish_time, 
+      attributes
+    FROM ${ref('cnsmr_info_lower_silver_inc')}
+    WHERE ACTV_IND = 'Y'
+
+  ) e
+  GROUP BY e.CNSMR_ID
+)
+
+,address_info AS (
+  SELECT
+    ARRAY_AGG(e ORDER BY Publish_Time DESC, UPDT_DTTM DESC, CRTD_DTTM DESC LIMIT 1)[OFFSET(0)].*
+  FROM (
+    SELECT
+      *
+    FROM ${ref("cnsmr_addr_info_lower_silver")}    
+    WHERE DFLT_IND = 'Y'
+
+    UNION ALL
+
+    SELECT
+      *
+    FROM ${ref("cnsmr_addr_info")}    
+    WHERE DFLT_IND = 'Y'
+
+  ) e
+  GROUP BY e.CNSMR_ID
+)
+
+,name_info AS (
+  SELECT
+    ARRAY_AGG(e ORDER BY Publish_Time DESC, UPDT_DTTM DESC, CRTD_DTTM DESC LIMIT 1)[OFFSET(0)].*
+  FROM (
+    SELECT
+      *
+    FROM ${ref("cnsmr_nm_info_lower_silver")}
+    WHERE PRIM_NM_IND = 'Y'
+
+    UNION ALL
+
+    SELECT
+      *
+    FROM ${ref("cnsmr_nm_info")}
+    WHERE PRIM_NM_IND = 'Y'
+  ) e
+  GROUP BY e.CNSMR_ID
+)
+
+,phone_info AS (
+  (
+  SELECT
+    ARRAY_AGG(e ORDER BY Publish_Time DESC, UPDT_DTTM DESC, CRTD_DTTM DESC LIMIT 1)[OFFSET(0)].*
+  FROM (
+    SELECT
+      CNSMR_PHN_ID, 
+      CNSMR_ID, 
+      PHN_NBR, 
+      PHN_TYP, 
+      PRIM_PHN_IND, 
+      CRTD_BY, 
+      CAST(CRTD_DTTM AS TIMESTAMP) AS CRTD_DTTM, 
+      UPDT_BY, 
+      CAST(UPDT_DTTM AS TIMESTAMP) AS UPDT_DTTM, 
+      ACTV_IND, 
+      subscription_name, 
+      message_id, 
+      publish_time, 
+      attributes
+    FROM ${ref('xfuze_consumer_master', 'cnsmr_phn_info')}
+    WHERE PRIM_PHN_IND = 'Y'
+
+    UNION ALL
+
+    SELECT
+      CNSMR_PHN_ID, 
+      CNSMR_ID, 
+      PHN_NBR, 
+      PHN_TYP, 
+      PRIM_PHN_IND, 
+      CRTD_BY, 
+      CAST(CRTD_DTTM AS TIMESTAMP) AS CRTD_DTTM, 
+      UPDT_BY, 
+      CAST(UPDT_DTTM AS TIMESTAMP) AS UPDT_DTTM, 
+      ACTV_IND, 
+      subscription_name, 
+      message_id, 
+      publish_time, 
+      attributes
+    FROM ${ref('xfuze_consumer_master_backup', 'cnsmr_phn_info')}
+    WHERE PRIM_PHN_IND = 'Y'
+
+  ) e
+  GROUP BY e.CNSMR_ID
+)
+)
+
+,acq_info AS (
+  (
+  SELECT
+    ARRAY_AGG(e ORDER BY Publish_Time ASC, UPDT_DTTM ASC, CRTD_DTTM ASC LIMIT 1)[OFFSET(0)].*
+  FROM (
+    SELECT
+      *
+    FROM ${ref("cnsmr_src_xref_lower_silver")}
+
+    UNION ALL
+
+    SELECT
+      *
+    FROM ${ref("cnsmr_src_xref")}
+
+
+  ) e
+  GROUP BY e.CNSMR_ID
+)
+)
+
+
+SELECT
+  i.CNSMR_ID as ConsumerID,
+  -- Base info attributes
+  i.CNSMR_BRTH_DT as ConsumerBirthDate,
+  i.CNSMR_GNDR_CD as ConsumerGenderCD,
+  i.CNSMR_CHLD_IND as ConsumerChildInd,
+  i.AG_AFLTN_IND as AGAffiliationInd,
+  i.MTTL_AFLTN_IND as MattelAffiliationInd,
+  i.EMAIL_ADDR_VAL as ConsumerEmail,
+  i.AG_MYACCT_IND as AGMyAccountInd, 
+  i.MTTL_MYACCT_IND as MattelMyAccountInd,
+  i.GDPR_IND as GDPRInd,
+  
+  -- Address info 
+  a.ADDR_LN_1_TXT as AddressLine1,
+  a.ADDR_LN_2_TXT as AddressLine2,
+  a.City_NM as City,
+  a.State_NM as State,
+  a.ZIP_CD as Zip,
+  
+  -- Name info
+  UPPER(n.CNSMR_FRST_NM) as FirstName,
+  UPPER(n.CNSMR_LST_NM) as LastName,
+  
+  -- -- Phone info
+  p.PHN_NBR as PhoneNumber,
+  
+  acqm.SRC_ACQ_DESC as AcquisitionSourceType,
+  acqm.CMPGN_NM as AcquisitionCampaign,
+
+  i.Publish_Time as ConsumerUpdatedTime
+  
+FROM  base_info i
+
+LEFT JOIN address_info a
+  ON i.CNSMR_ID = a.CNSMR_ID
+
+LEFT JOIN name_info n
+  ON i.CNSMR_ID = n.CNSMR_ID
+
+LEFT JOIN phone_info p
+  ON i.CNSMR_ID = p.CNSMR_ID
+
+LEFT JOIN acq_info acq
+  ON i.CNSMR_ID = acq.CNSMR_ID
+
+LEFT JOIN ${ref("src_acq_mstr_lower_silver")}  acqm
+  ON acq.SRC_ACQ_ID = acqm.SRC_ACQ_ID
+

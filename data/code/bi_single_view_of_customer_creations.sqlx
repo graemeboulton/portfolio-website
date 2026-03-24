@@ -1,0 +1,206 @@
+config {
+  type: "table",
+  tags: ["sales_orders", "customers", "daily"],
+  assertions: {
+    uniqueKey: ["FiscalYearMonth", "CustomerEmail"]},
+  schema: "bi_customer",
+  description: "monthly single view of customer",
+  bigquery: {
+    partitionBy:"RANGE_BUCKET(FiscalYearMonth, GENERATE_ARRAY(201801, 202912, 1))",
+    clusterBy: ["CustomerID"]
+  }
+}
+
+with fiscal as (
+     SELECT DISTINCT
+          CAST(CONCAT(EXTRACT(Year FROM Dates), LPAD(CAST(EXTRACT(Month FROM Dates) AS STRING), 2, '0')) AS INT64) AS FiscalYearMonth,
+     FROM 
+          (SELECT
+               GENERATE_DATE_ARRAY(MIN(DATE(OrderPlacedTimeStamp)), MAX(DATE(OrderUpdatedTimeStamp))) d_array
+          FROM ${ref("sales_orders_silver")}), unnest(d_array) dates
+     )
+
+,sales_customers as (
+  SELECT DISTINCT
+  UPPER(CustomerDetails.CustomerEmail) CustomerEmail,
+  MIN(CAST(CONCAT(EXTRACT(Year FROM OrderPlacedTimeStamp), LPAD(CAST(EXTRACT(Month FROM OrderPlacedTimeStamp) AS STRING), 2, '0')) AS INT64)) AS FirstOrderFiscalYearMonth,
+  FROM ${ref("sales_orders_silver")}
+  WHERE OrderAttributes.StoreFront = 'creations' 
+  GROUP BY ALL
+)
+
+, INIT_DRIVER as (
+SELECT 
+CustomerEmail,
+fiscal.FiscalYearMonth,
+FROM sales_customers
+CROSS JOIN fiscal
+WHERE FiscalYearMonth >= FirstOrderFiscalYearMonth
+AND CustomerEmail is not null
+)
+
+,driver as (
+SELECT
+i.*,
+b.ConsumerID as CustomerID,
+b.FirstName, 
+b.LastName,
+CONCAT(b.FirstName, '_', b.LastName) as FullName,
+b.City,
+b.State,
+CAST(Null as String) as Country, -- placeholder
+b.AcquisitionSourceType,
+b.AcquisitionCampaign,
+COALESCE(b.ConsumerUpdatedTime, '2036-02-02 01:40:21.677000 UTC') as ConsumerUpdatedTime,
+COALESCE(M.MasterOfUniverseMembership, 'N') AS MasterOfUniverseMembership,
+COALESCE(M.RLCMembership, 'N') AS RLCMembership,
+COALESCE(M.HotWheelsCollectorMembership, 'N') AS HotWheelsCollectorMembership,
+COALESCE(M.BarbieCollectorMembership, 'N') AS BarbieCollectorMembership,
+COALESCE(M.MonsterHighMembership, 'N') AS MonsterHighMembership
+FROM INIT_DRIVER i
+LEFT JOIN ${ref("xfuze_consumer_master_base_info_silver")} b 
+ON i.CustomerEmail = UPPER(b.ConsumerEmail)
+AND b.ConsumerEmail IS NOT NULL
+LEFT JOIN ${ref("xfuze_consumer_master_history_silver")} m
+ON b.ConsumerID = m.ConsumerID
+AND i.FiscalYearMonth >= m.FiscalYearMonthStart
+AND i.FiscalYearMonth < m.FiscalYearMonthEnd
+AND m.MonthEndEvent = 'Y'
+),
+
+Latest_driver AS (
+  SELECT
+    ARRAY_AGG(e ORDER BY e.ConsumerUpdatedTime DESC LIMIT 1)[OFFSET(0)].*
+  FROM driver e
+  GROUP BY e.CustomerEmail, e.FiscalYearMonth
+)
+
+
+,orders AS (
+SELECT
+UPPER(CustomerDetails.CustomerEmail) as CustomerID,
+EXTRACT(Year FROM OrderPlacedTimeStamp) as TransactionYear,
+EXTRACT(Month FROM OrderPlacedTimeStamp) as TransactionMonth,
+CAST(CONCAT(EXTRACT(Year FROM OrderPlacedTimeStamp), LPAD(CAST(EXTRACT(Month FROM OrderPlacedTimeStamp) AS STRING), 2, '0')) AS INT64) as TransactionYearMonth,
+OrderPlacedTimeStamp,
+OrderID,
+SUM(SalesMeasures.GrossSalesValue) as GrossSalesValue,
+SUM(SalesMeasures.NetSalesValue) as NetSalesValue,
+SUM(SalesMeasures.ReturnedSalesValue) as ReturnedSalesValue,
+SUM(SalesMeasures.CancelledSalesValue) as CancelledSalesValue,
+SUM(SalesMeasures.DiscountedSalesValue) as DiscountedSalesValue,
+SUM(SalesMeasures.TotalTaxSalesValue) as TaxSalesValue,
+SUM(SalesMeasures.GrossSalesQuantity) as GrossSalesQuantity,
+SUM(SalesMeasures.NetSalesQuantity) as NetSalesQuantity,
+SUM(SalesMeasures.ReturnedSalesQuantity) as ReturnedSalesQuantity,
+SUM(SalesMeasures.ShippingSalesValue) as ShippingSalesValue,
+SUM(SalesMeasures.CancelledSalesQuantity) as CancelledSalesQuantity,
+SUM(SalesMeasures.DiscountedSalesQuantity) as DiscountedSalesQuantity,
+SUM(SalesMeasures.TaxSalesQuantity) as TaxSalesQuantity,
+COUNT(DISTINCT(CASE WHEN SalesMeasures.GrossSalesQuantity > 0 THEN OrderID END)) as GrossSalesOrders,
+COUNT(DISTINCT(CASE WHEN SalesMeasures.NetSalesQuantity > 0 THEN OrderID END)) as NetSalesOrders,
+COUNT(DISTINCT(CASE WHEN ABS(SalesMeasures.ReturnedSalesQuantity) > 0 THEN OrderID END)) as ReturnedSalesOrders,
+COUNT(DISTINCT(CASE WHEN ABS(SalesMeasures.CancelledSalesQuantity) > 0 THEN OrderID END)) as CancelledSalesOrders,
+COUNT(DISTINCT(CASE WHEN SalesMeasures.DiscountedSalesQuantity > 0 THEN OrderID END)) as DiscountedSalesOrders,
+COUNT(DISTINCT(CASE WHEN SalesMeasures.TaxSalesQuantity > 0 THEN OrderID END)) as TaxSalesOrders,
+FROM ${ref("sales_orders_silver")}  s
+WHERE OrderAttributes.StoreFront = 'creations' 
+GROUP BY ALL
+)
+
+,orders_window as 
+(
+SELECT
+CustomerID,
+TransactionYearMonth,
+SUM(GrossSalesValue)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as GrossSalesValue,
+SUM(NetSalesValue)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as NetSalesValue,
+SUM(ReturnedSalesValue)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as ReturnedSalesValue,
+SUM(CancelledSalesValue)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as CancelledSalesValue,
+SUM(ShippingSalesValue)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as ShippingSalesValue,
+SUM(DiscountedSalesValue)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as DiscountedSalesValue,
+SUM(TaxSalesValue)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as TaxSalesValue,
+SUM(GrossSalesQuantity)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as GrossSalesQuantity,
+SUM(NetSalesQuantity)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as NetSalesQuantity,
+SUM(ReturnedSalesQuantity)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as ReturnedSalesQuantity,
+SUM(CancelledSalesQuantity)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as CancelledSalesQuantity,
+SUM(DiscountedSalesQuantity)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as DiscountedSalesQuantity,
+SUM(TaxSalesQuantity)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as TaxSalesQuantity,
+SUM(GrossSalesOrders)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as GrossSalesOrders,
+SUM(NetSalesOrders)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as NetSalesOrders,
+SUM(ReturnedSalesOrders)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as ReturnedSalesOrders,
+SUM(CancelledSalesOrders)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as CancelledSalesOrders,
+SUM(DiscountedSalesOrders)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as DiscountedSalesOrders,
+SUM(TaxSalesOrders)OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp asc ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as TaxSalesOrders,
+FIRST_VALUE(CASE WHEN GrossSalesOrders > 0 THEN OrderPlacedTimeStamp END IGNORE NULLS) 
+OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp ASC 
+     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as GrossFirstOrderTimeStamp,
+NTH_VALUE(CASE WHEN GrossSalesOrders > 0 THEN OrderPlacedTimeStamp END, 2 IGNORE NULLS) 
+OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp ASC 
+     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as GrossSecondOrderTimeStamp,
+NTH_VALUE(CASE WHEN GrossSalesOrders > 0 THEN OrderPlacedTimeStamp END, 3 IGNORE NULLS) 
+OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp ASC 
+     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as GrossThirdOrderTimeStamp,
+FIRST_VALUE(CASE WHEN GrossSalesOrders > 0 THEN OrderPlacedTimeStamp END IGNORE NULLS) 
+OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp DESC 
+     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as GrossLastOrderTimeStamp,
+FIRST_VALUE(CASE WHEN NetSalesOrders > 0 THEN OrderPlacedTimeStamp END IGNORE NULLS) 
+OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp ASC 
+     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as NetFirstOrderTimeStamp,
+NTH_VALUE(CASE WHEN NetSalesOrders > 0 THEN OrderPlacedTimeStamp END, 2 IGNORE NULLS) 
+OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp ASC 
+     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as NetSecondOrderTimeStamp,
+NTH_VALUE(CASE WHEN NetSalesOrders > 0 THEN OrderPlacedTimeStamp END, 3 IGNORE NULLS) 
+OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp ASC 
+     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as NetThirdOrderTimeStamp,
+FIRST_VALUE(CASE WHEN NetSalesOrders > 0 THEN OrderPlacedTimeStamp END IGNORE NULLS) 
+OVER(PARTITION BY CustomerID ORDER BY OrderPlacedTimeStamp DESC 
+     ROWS BETWEEN UNBOUNDED PRECEDING AND CURRENT ROW) as NetLastOrderTimeStamp,
+FROM orders
+QUALIFY OrderPlacedTimeStamp = MAX(OrderPlacedTimeStamp)OVER(PARTITION BY CustomerID, TransactionYear, TransactionMonth))
+
+,further_metrics as (
+SELECT
+*,
+COALESCE(LAG(TransactionYearMonth)OVER(PARTITION BY CustomerID ORDER BY TransactionYearMonth desc), 209999) as NextYearMonth,
+NetSalesValue - CancelledSalesValue + ShippingSalesValue as GMV,
+GrossSalesValue - DiscountedSalesValue as GrossDemand,
+GrossSalesValue - DiscountedSalesValue - CancelledSalesValue  as NetDemand,
+SAFE_DIVIDE(GrossSalesValue, GrossSalesOrders) as GrossSalesAOV,
+SAFE_DIVIDE(NetSalesValue, NetSalesOrders) as NetSalesAOV,
+SAFE_DIVIDE(GrossSalesQuantity, GrossSalesOrders) as GrossSalesUPT,
+SAFE_DIVIDE(NetSalesQuantity, NetSalesOrders) as NetSalesUPT,
+SAFE_DIVIDE(GrossSalesValue, GrossSalesQuantity) as GrossSalesASP,
+SAFE_DIVIDE(NetSalesValue, NetSalesQuantity) as NetSalesASP,
+SAFE_DIVIDE(DiscountedSalesValue, NetSalesOrders) as DiscountAverageValue,
+SAFE_DIVIDE(ReturnedSalesValue, GrossSalesOrders) as RefundAverageValue,
+DATE_DIFF(GrossSecondOrderTimeStamp, GrossFirstOrderTimeStamp, DAY) as DaysFirstToSecondGrossOrder,
+DATE_DIFF(GrossThirdOrderTimeStamp, GrossFirstOrderTimeStamp, DAY) as DaysFirstToThirdGrossOrder,
+DATE_DIFF(CURRENT_DATETIME(), GrossFirstOrderTimeStamp, DAY) as DaysSinceFirstGrossOrder,
+DATE_DIFF(CURRENT_DATETIME(), GrossLastOrderTimeStamp, DAY) as DaysSinceLastGrossOrder,
+DATE_DIFF(NetSecondOrderTimeStamp, NetFirstOrderTimeStamp, DAY) as DaysFirstToSecondNetOrder,
+DATE_DIFF(NetThirdOrderTimeStamp, NetFirstOrderTimeStamp, DAY) as DaysFirstToThirdNetOrder,
+DATE_DIFF(CURRENT_DATETIME(), NetFirstOrderTimeStamp, DAY) as DaysSinceFirstNetOrder,
+DATE_DIFF(CURRENT_DATETIME(), NetLastOrderTimeStamp, DAY) as DaysSinceLastNetOrder,
+SAFE_DIVIDE(DATE_DIFF(CURRENT_DATETIME(), GrossLastOrderTimeStamp, DAY), GrossSalesOrders) AverageDaysBetweenGrossOrders,
+SAFE_DIVIDE(DATE_DIFF(CURRENT_DATETIME(), NetLastOrderTimeStamp, DAY), NetSalesOrders) AverageDaysBetweenNetOrders,
+FROM orders_window
+order by customerid
+)
+
+,final as (
+SELECT 
+d.*,
+f.* EXCEPT(transactionyearmonth, customerid)
+FROM latest_driver d
+LEFT JOIN further_metrics f
+ON d.customeremail = f.customerid
+AND d.FiscalYearMonth >= f.TransactionYearMonth
+AND d.FiscalYearMonth < NextYearMonth
+WHERE f.CustomerID is not null
+)
+
+SELECT
+*
+FROM final
+

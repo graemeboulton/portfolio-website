@@ -1,0 +1,31 @@
+config {
+  type: "incremental",
+  schema: "xfuze_staging",
+  name: "cnsmr_chld_info_lower_silver",
+  description: "Consumer child information unpacked from raw Pub/Sub messages",
+  tags: ["customers", "daily"],
+  uniqueKey: ["CNSMR_CHLD_ID"],
+  bigquery: {
+    partitionBy: "DATE(publish_time)",
+    clusterBy: ["CNSMR_ID"]
+  }
+}
+
+SELECT
+  SAFE_CAST(JSON_VALUE(data, '$.CNSMR_CHLD_ID') AS INT64) AS CNSMR_CHLD_ID,
+  SAFE_CAST(JSON_VALUE(data, '$.CNSMR_ID') AS INT64) AS CNSMR_ID,
+  JSON_VALUE(data, '$.CHLD_NM') AS CHLD_NM,
+  SAFE.PARSE_DATE('%Y-%m-%d', JSON_VALUE(data, '$.CHLD_BRTH_DT')) AS CHLD_BRTH_DT,
+  JSON_VALUE(data, '$.CHLD_GNDR_CD') AS CHLD_GNDR_CD,
+  SAFE_CAST(JSON_VALUE(data, '$.RELSHP_ID') AS INT64) AS RELSHP_ID,
+  JSON_VALUE(data, '$.ACTV_IND') AS ACTV_IND,
+  JSON_VALUE(data, '$.CRTD_BY') AS CRTD_BY,
+  JSON_VALUE(data, '$.CRTD_DTTM') AS CRTD_DTTM,
+  JSON_VALUE(data, '$.UPDT_BY') AS UPDT_BY,
+  JSON_VALUE(data, '$.UPDT_DTTM') AS UPDT_DTTM,
+  subscription_name,
+  message_id,
+  publish_time,
+  TO_JSON_STRING(attributes) AS attributes
+FROM ${ref("raw_cnsmr_chld_info")}
+${ when(incremental(), `WHERE publish_time > (SELECT MAX(publish_time) FROM ${self()})`) }

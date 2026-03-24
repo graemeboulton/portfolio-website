@@ -1,0 +1,243 @@
+config {
+  type: "table",
+  tags: ["sales_orders", "customers", "daily"],
+  schema: "bi_customer",
+  description: "monthly single view of customer",
+  assertions: {
+    uniqueKey: ["PrimaryKey"]
+  },
+  bigquery: {
+    partitionBy: "Date(EventTimeStamp)",
+    clusterBy: ["CustomerID"]
+  }
+}
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- Customers who transacted across more than one channel in a given month
+-- ────────────────────────────────────────────────────────────────────────────
+WITH order_channels AS (
+  SELECT
+    TransactionYearMonth,
+    CustomerID,
+    ARRAY_AGG(DISTINCT OrderType IGNORE NULLS) AS OrderChannels
+  FROM ${ref("bi_customer_trading_mart_ag")}
+  WHERE DATE(OrderPlacedTimeStamp) > CURRENT_DATE() - 1100
+    AND IsGrossOrder = 1
+    AND (ProductVendor != 'Shipping' OR ProductVendor IS NULL)
+    AND UPPER(ProductCode) NOT IN (
+      'AG CATALOGUE', 'FFP09.AGCAR', 'GXW37.AGCAR', 'DHSERVICE',
+      'GW950AG', 'GW950BW', 'GW950HW', 'GW950SP', 'GW950VB', 'GW950SG'
+    )
+    AND OrderAttributes.OrderNumber NOT IN (
+      SELECT COALESCE(OrderNumber, 'N')
+      FROM  ${ref("sales_orders_predict_spring_silver_union")}
+      WHERE FinancialStatus IN ('REFUNDED', 'VOIDED', 'RETURNED')
+         OR IsCancelled = TRUE
+    )
+  GROUP BY ALL
+  HAVING ARRAY_LENGTH(OrderChannels) > 1
+),
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- Sales transactions enriched with loyalty and channel data
+-- ────────────────────────────────────────────────────────────────────────────
+transaction_customers AS (
+  SELECT
+    t.TransactionYearMonth AS FinancialYearMonth,
+    OrderAttributes.OrderNumber as PrimaryKey,
+    CASE
+      WHEN OrderType = 'PredictSpring' AND o.CustomerID IS NULL THEN 'Retail'
+      WHEN OrderType = 'Shopify' AND o.CustomerID IS NULL THEN 'E-comm'
+      WHEN o.CustomerID IS NOT NULL THEN 'Omnichannel'
+    END AS Channel,
+    CAST(t.CustomerID AS INT64) AS CustomerID,
+    'Sales' AS FieldType,
+    StoreID,
+    StoreName,
+    StoreType,
+    StoreCity,
+    OrderAttributes.OrderNumber AS OrderNumber,
+    OrderPlacedTimeStamp AS EventTimeStamp,
+    CASE
+      WHEN DATE_TRUNC(c.LYLTY_STRT_DT, MONTH) = DATE_TRUNC(OrderPlacedTimeStamp, MONTH) THEN 'New'
+      WHEN LYLTY_TIER_CD IS NOT NULL THEN 'Existing'
+      ELSE 'Not Member'
+    END AS MembershipRecency,
+    IsGrossOrder,
+    IsOrderWithPointsRedemption,
+    CASE
+      WHEN UPPER(LYLTY_TIER_CD) IN ('GOLD', 'SILVER', 'BERRY') THEN LYLTY_TIER_CD
+      ELSE 'None'
+    END AS AGLoyaltyTier,
+    CASE
+      WHEN UPPER(LYLTY_TIER_CD) IN ('GOLD', 'SILVER', 'BERRY') THEN 1
+      ELSE 0
+    END AS IsActiveMember,
+    CAST(NULL AS STRING) as PointsChangeKind,
+    0 AS PointsEarned,
+    0 AS PointsRedeemed,
+    0 AS PointsExpired,
+    SUM(Demand) AS Demand
+  FROM ${ref("bi_customer_trading_mart_ag")} t
+  LEFT JOIN ${ref("xfuze_consumer_master_loyalty_month_end")} c
+    ON t.CustomerID = c.CNSMR_ID
+    AND t.TransactionYearMonth >= c.FiscalYearMonthStart
+    AND t.TransactionYearMonth < c.FiscalYearMonthEnd
+  LEFT JOIN order_channels o
+    ON t.CustomerID = o.CustomerID
+    AND t.TransactionYearMonth = o.TransactionYearMonth
+  WHERE DATE(OrderPlacedTimeStamp) > CURRENT_DATE() - 1100
+    AND IsGrossOrder = 1
+    AND (ProductVendor != 'Shipping' OR ProductVendor IS NULL)
+    AND UPPER(ProductCode) NOT IN (
+      'AG CATALOGUE', 'FFP09.AGCAR', 'GXW37.AGCAR', 'DHSERVICE',
+      'GW950AG', 'GW950BW', 'GW950HW', 'GW950SP', 'GW950VB', 'GW950SG'
+    )
+    AND OrderAttributes.OrderNumber NOT IN (
+      SELECT COALESCE(OrderNumber, 'N')
+      FROM ${ref("sales_orders_predict_spring_silver_union")}
+      WHERE FinancialStatus IN ('REFUNDED', 'VOIDED', 'RETURNED')
+         OR IsCancelled = TRUE
+    )
+  GROUP BY ALL
+),
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- Deduplicate loyalty records to the first (oldest) record per consumer
+-- ────────────────────────────────────────────────────────────────────────────
+base_enrollments AS (
+  SELECT
+    ARRAY_AGG(e ORDER BY UPDT_DTTM ASC, CRTD_DTTM ASC LIMIT 1)[OFFSET(0)].*
+  FROM ${ref("xfuze_consumer_master_loyalty_month_end")} e
+  GROUP BY e.CNSMR_ID
+),
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- Loyalty programme enrolments
+-- ────────────────────────────────────────────────────────────────────────────
+enrollments AS (
+  SELECT DISTINCT
+    CAST(CONCAT(
+      EXTRACT(YEAR FROM LYLTY_STRT_DT),
+      LPAD(CAST(EXTRACT(MONTH FROM LYLTY_STRT_DT) AS STRING), 2, '0')
+    ) AS INT64) AS TransactionYearMonth,
+    CAST(CNSMR_ID AS STRING) AS PrimaryKey,
+    LYLTY_SRC_NAME AS Channel,
+    CNSMR_ID AS CustomerID,
+    'Enrollments' AS FieldType,
+    CASE
+      WHEN LYLTY_ACCT_SRC IN (301,931) THEN 'Shopify'
+      WHEN LYLTY_ACCT_SRC = 1301 THEN 'CSR'
+      WHEN LYLTY_ACCT_SRC = 11 THEN 'Unknown'
+      ELSE CAST(LYLTY_ACCT_SRC AS STRING)
+    END AS StoreID,
+    Name AS StoreName,
+    StoreType,
+    City AS StoreCity,
+    CAST(NULL AS STRING) AS OrderNumber,
+    CAST(LYLTY_STRT_DT AS DATETIME) AS EventTimeStamp,
+    'New' AS MembershipRecency,
+    0 AS IsGrossOrder,
+    0 AS IsOrderWithPointsRedemption,
+    LYLTY_TIER_CD AS AGLoyaltyTier,
+    1 AS IsActiveMember,
+    CAST(NULL AS STRING) as PointsChangeKind,
+    0 AS PointsEarned,
+    0 AS PointsRedeemed,
+    0 AS PointsExpired,
+    0 AS Demand
+  FROM base_enrollments l
+  LEFT JOIN ${ref("xfuze_store_details")} so
+    ON CAST(l.LYLTY_ACCT_SRC AS STRING) = so.StoreID
+  WHERE DATE(LYLTY_STRT_DT) > CURRENT_DATE() - 1100
+),
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- Store-level order lookup used to enrich points records
+-- ────────────────────────────────────────────────────────────────────────────
+store_orders AS (
+  SELECT DISTINCT
+    StoreID,
+    StoreType,
+    StoreName,
+    StoreCity,
+    OrderNumber
+  FROM transaction_customers
+  WHERE IsGrossOrder = 1
+),
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- Loyalty points activity (earned / redeemed / expired)
+-- ────────────────────────────────────────────────────────────────────────────
+points AS (
+  SELECT 
+    CAST(CONCAT(
+      EXTRACT(YEAR FROM chg_time),
+      LPAD(CAST(EXTRACT(MONTH FROM chg_time) AS STRING), 2, '0')
+    ) AS INT64) AS TransactionYearMonth,
+    CONCAT(COALESCE(Redeemed_Order_Number, Earned_Order_Number, CAST(i.ConsumerID as string), chg_kind), b.subj_email, DATE(chg_time), chg_kind) as PrimaryKey,
+    CASE
+      WHEN LEFT(Earned_Order_Number, 3) = 'AGP' OR LEFT(Redeemed_Order_Number, 3) = 'AGP' THEN 'E-comm'
+      WHEN LEFT(Earned_Order_Number, 2) = 'PS' OR LEFT(Redeemed_Order_Number, 2) = 'PS' THEN 'Retail'
+      ELSE 'Bubblehouse'
+    END AS Channel,
+    i.ConsumerID AS CustomerID,
+    'Points' AS FieldType,
+    so.StoreID,
+    so.StoreName,
+    so.StoreType,
+    so.StoreCity,
+    COALESCE(Redeemed_Order_Number, Earned_Order_Number) AS OrderNumber,
+    CAST(DATE(chg_time) AS DATETIME) AS EventTimeStamp,
+    CASE
+      WHEN DATE_TRUNC(ch.LYLTY_STRT_DT, MONTH) = DATE_TRUNC(chg_time, MONTH) THEN 'New'
+      WHEN DATE_TRUNC(ch.LYLTY_STRT_DT, MONTH) < DATE_TRUNC(chg_time, MONTH) OR ch.LYLTY_STRT_DT IS NOT NULL THEN 'Existing'
+      ELSE 'Not Member'
+    END AS MembershipRecency,
+    0 AS IsGrossOrder,
+    0 AS IsOrderWithPointsRedemption,
+    ch.LYLTY_TIER_CD AS AGLoyaltyTier,
+    CASE WHEN 
+    (is_active_points_change = 1 OR pts_redeemed != 0  OR pts_earned != 0)
+    AND ch.LYLTY_TIER_CD IS NOT NULL THEN 1 ELSE 0 END AS IsActiveMember,
+    chg_kind as PointsChangeKind,
+    SUM(pts_earned) AS PointsEarned,
+    SUM(pts_redeemed) AS PointsRedeemed,
+    SUM(pts_expired) AS PointsExpired,
+    0 AS Demand
+  FROM ${ref("xfuze_bubblehouse_silver")} b
+  LEFT JOIN ${ref("xfuze_consumer_master_base_info_silver")} i
+    ON b.subj_email = i.consumeremail
+    AND b.subj_email IS NOT NULL
+    AND TRIM(b.subj_email) != ''
+  LEFT JOIN ${ref("xfuze_consumer_master_loyalty_month_end")} ch
+    ON i.ConsumerID = ch.CNSMR_ID
+    AND  CAST(CONCAT(
+      EXTRACT(YEAR FROM chg_time),
+      LPAD(CAST(EXTRACT(MONTH FROM chg_time) AS STRING), 2, '0')
+    ) AS INT64) >= ch.FiscalYearMonthStart
+    AND  CAST(CONCAT(
+      EXTRACT(YEAR FROM chg_time),
+      LPAD(CAST(EXTRACT(MONTH FROM chg_time) AS STRING), 2, '0')
+    ) AS INT64) < ch.FiscalYearMonthEnd
+  LEFT JOIN store_orders so
+    ON b.Redeemed_Order_Number = so.OrderNumber
+    OR b.Earned_Order_Number = so.OrderNumber
+  WHERE DATE(chg_time) > CURRENT_DATE() - 1100
+    AND (
+      is_active_points_change = 1
+      OR pts_redeemed != 0
+      OR pts_earned != 0
+      OR pts_expired != 0
+    )
+  GROUP BY ALL
+)
+
+-- ────────────────────────────────────────────────────────────────────────────
+-- Final union of all three event types
+-- ────────────────────────────────────────────────────────────────────────────
+SELECT * FROM transaction_customers
+UNION ALL
+SELECT * FROM enrollments
+UNION ALL
+SELECT * FROM points

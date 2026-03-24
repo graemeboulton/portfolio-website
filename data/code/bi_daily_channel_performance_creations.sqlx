@@ -1,0 +1,115 @@
+config {
+  type: "incremental",
+  tags: ["ga4", "daily"],
+  schema: "bi_marketing",
+  bigquery: {
+    partitionBy:"EventDate",
+    clusterBy: ["SessionCustomChannelGroup"],
+  }
+}
+
+
+pre_operations {
+  ${when(incremental(), 
+    "DELETE FROM " + self() + " WHERE EventDate >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY);", 
+    ""
+  )}
+}
+
+
+with base as (SELECT 
+Date as EventDate,
+Country,
+State, 
+ReturningCustomer,
+--city,
+device_category as DeviceCategory,
+session_custom_channel_group as SessionCustomChannelGroup,
+session_source as SessionSource,
+session_medium as SessionMedium,
+session_campaign_name as SessionCampaignName,
+CAST(CONCAT(
+      EXTRACT(YEAR FROM CustomerAcquisitionDate),
+      LPAD(CAST(EXTRACT(MONTH FROM CustomerAcquisitionDate) AS STRING), 2, '0')
+    ) AS INT64) AS CustomerAcquisitionMonth,
+COUNT(DISTINCT(CONCAT(session_id, ga_client_id))) as Sessions,
+SUM(session_duration_seconds) as TotalSessionDurationSeconds,
+COUNT(DISTINCT(CASE WHEN engaged_session = '1' then CONCAT(session_id, ga_client_id) END)) as EngagedSessions,
+COUNT(DISTINCT(CASE WHEN viewed_item = 1 then CONCAT(session_id, ga_client_id) END)) as ViewedItem,
+COUNT(DISTINCT(CASE WHEN added_to_cart = 1 then CONCAT(session_id, ga_client_id) END)) as CartAdds,
+COUNT(DISTINCT(CASE WHEN checkout = 1 then CONCAT(session_id, ga_client_id) END)) as Checkouts,
+COUNT(DISTINCT(CASE WHEN purchased = 1 then CONCAT(session_id, ga_client_id) END)) as Purchases,
+SUM(ARRAY_LENGTH(ARRAY(SELECT DISTINCT x FROM UNNEST(OrderIDs) as x))) as Transactions,
+COUNT(DISTINCT(COALESCE(CustomerID, ga_client_id))) as Customers,
+COUNT(DISTINCT(CASE WHEN ARRAY_LENGTH(OrderIDs) > 0 THEN COALESCE(CustomerID, ga_client_id) END)) as PurchasingCustomers,
+COUNT(DISTINCT(CASE WHEN ARRAY_LENGTH(OrderIDs) <= 0 THEN COALESCE(CustomerID, ga_client_id) END)) as NonPurchasingCustomers,
+SUM(GrossSales) as GrossSalesValue,
+SUM(NetSalesValue) as NetSalesValue,
+SUM(GrossSalesQty) as GrossSalesQty,
+SUM(Demand) as Demand,
+SUM(GMV) as GMV,
+SUM(LifetimeSpend) as CustomerLifetimeSpend
+FROM ${ref("xfuze_ga_sessions_creations")}
+WHERE 1=1
+ ${when(incremental(), `AND Date >= DATE_SUB(CURRENT_DATE(), INTERVAL 3 DAY)`)}
+GROUP BY ALL
+)
+
+,ga_purchase as (
+SELECT
+EventDate,
+SUM(GrossSalesValue) as GrossSalesValue,
+SUM(NetSalesValue) as NetSalesValue,
+SUM(GrossSalesQty) as GrossSalesQty,
+SUM(Demand) as Demand,
+SUM(GMV) as GMV,
+SUM(PurchasingCustomers) as Buyers,
+SUM(Transactions) as Transactions
+FROM base
+GROUP BY ALL
+)
+
+,shopify_purchase as (
+SELECT
+DATE(OrderPlacedTimeStamp) as OrderDate,
+SUM(GrossSalesValue) as GrossSalesValue,
+SUM(NetSalesValue) as NetSalesValue,
+SUM(GrossSalesQuantity) as GrossSalesQty,
+SUM(Demand) as Demand,
+SUM(GMV) as GMV,
+COUNT(DISTINCT(CASE WHEN isgrossorder = 1 THEN OrderID END)) as Transactions,
+COUNT(DISTINCT(CustomerID)) as Buyers,
+FROM ${ref("bi_customer_trading_mart_creations")}
+WHERE OrderAttributes.Locale = 'us' -- this will be removed once we have additional ga data
+GROUP BY ALL
+)
+
+,shopify_uplift as (
+SELECT 
+g.*,
+SAFE_DIVIDE(s.GrossSalesValue , g.GrossSalesValue) as GrossSalesUpliftFactor,
+SAFE_DIVIDE(s.NetSalesValue , g.NetSalesValue) as NetSalesUpliftFactor,
+SAFE_DIVIDE(s.GrossSalesQty , g.GrossSalesQty) as GrossQtyUpliftFactor,
+SAFE_DIVIDE(s.Transactions , g.Transactions) as TransactionUpliftFactor,
+SAFE_DIVIDE(s.Demand , g.Demand) as DemandUpliftFactor,
+SAFE_DIVIDE(s.GMV , g.GMV) as GMVUpliftFactor,
+SAFE_DIVIDE(s.Buyers , g.Buyers) as BuyersUpliftFactor,
+FROM ga_purchase g 
+LEFT JOIN shopify_purchase s
+ON g.eventdate = s.orderdate
+)
+
+SELECT 
+b.*,
+b.GrossSalesValue * GrossSalesUpliftFactor as ShopifyAdjustedSalesValue,
+b.NetSalesValue * NetSalesUpliftFactor as ShopifyAdjustedNetSalesValue,
+b.GrossSalesQty * GrossQtyUpliftFactor as ShopifyAdjustedSalesQty,
+b.Transactions * TransactionUpliftFactor as ShopifyAdjustedTransactionCount,
+b.Demand * DemandUpliftFactor as ShopifyAdjustedDemandValue,
+b.GMV * GMVUpliftFactor as ShopifyAdjustedGMVValue,
+b.PurchasingCustomers * BuyersUpliftFactor as ShopifyAdjustedBuyersCount,
+GrossSalesUpliftFactor,
+GrossQtyUpliftFactor
+FROM base b
+LEFT JOIN shopify_uplift s
+ON b.EventDate = s.EventDate

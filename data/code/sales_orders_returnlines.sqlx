@@ -1,0 +1,345 @@
+config {
+  type: "incremental",
+  tags: ["sales_orders", "daily"],
+  schema: "xfuze_sales_order",
+  description: "Sales orders cleaned with business logic applied",
+  uniqueKey: ["PrimaryKey"],
+  assertions: {
+    uniqueKey: ["PrimaryKey"],
+    rowConditions: [
+      "OrderID = '1018609107149' OR OrderCancelledTimeStamp IS NULL OR (COALESCE(CancelledShopValuePreTax,0) != 0 OR COALESCE(QuantityCancelled,0) != 0)"
+    ]},
+  bigquery: {
+    partitionBy: "DATE(OrderUpdatedTimeStamp)",
+    clusterBy: ["OrderID"]
+  }
+}
+
+
+pre_operations {
+  ${when(incremental(), 
+    "DECLARE max_load_date DATE DEFAULT (SELECT COALESCE(MAX(DATE(OrderUpdatedTimeStamp)), DATE('2020-01-01')) FROM " + self() + " WHERE DATE(OrderUpdatedTimeStamp) >= DATE_SUB(CURRENT_DATE(), INTERVAL 7 DAY));", 
+    ""
+  )}
+}
+
+-- Common filter macro
+js {
+  const incrementalFilter = (alias = 'o') => {
+    return when(incremental(), `AND DATE(${alias}.BqLoadTimeStamp) > DATE_SUB(max_load_date, INTERVAL 7 DAY)`, '');
+  };
+}
+
+
+WITH base_order_fields AS (
+  SELECT
+    o.*,
+    (SELECT r.RefundCreatedAt FROM UNNEST(o.Refunds) r ORDER BY RefundCreatedAt DESC LIMIT 1) AS LastRefundTimestamp,
+    (SELECT T FROM UNNEST(o.Tags) T WHERE T = '"SENT"' LIMIT 1) AS IsSent,
+    (SELECT T FROM UNNEST(o.Tags) T WHERE T = '"processed"' LIMIT 1) AS IsProcessed,
+    (SELECT ct FROM UNNEST(o.customertags) ct WHERE ct = 'RLC' LIMIT 1) AS RLCTag,
+    (SELECT ct FROM UNNEST(o.customertags) ct WHERE ct = 'newsletter' LIMIT 1) AS NewsletterTag,
+    (SELECT ct FROM UNNEST(o.customertags) ct WHERE ct = 'prospect' LIMIT 1) AS ProspectTag,
+    (SELECT ct FROM UNNEST(o.customertags) ct WHERE ct = 'shop' LIMIT 1) AS ShopTag,
+    (SELECT SUM(ol.OriginalUnitPriceShopAmount - ol.DiscountedUnitPriceShopAmount) 
+     FROM UNNEST(o.LineItems) ol) AS UnitTotalDiscountShop,
+    (SELECT SUM(ol.OriginalUnitPricePresentmentAmount - ol.DiscountedUnitPricePresentmentAmount) 
+     FROM UNNEST(o.LineItems) ol) AS UnitTotalDiscountPresentment,
+    o.TotalPriceShopMoneyAmount = (SELECT SUM(r.TotalRefundedShopMoneyAmount) FROM UNNEST(Refunds) r) as FullReturn
+  FROM ${ref("sales_lower_silver_union")} o
+  WHERE o.TestOrder = FALSE
+    ${incrementalFilter()}
+)
+
+
+,returnlines_clean AS (
+  SELECT
+    COALESCE(r.RefundID, o.OrderID) AS OrderID,
+    CONCAT(o.OrderID, COALESCE(rl.LineItemID, li.LineItemID, 'NoLineItemID'), 'REFUND') AS PrimaryKey,
+    o.OrderName AS OrderNumber,
+    BQLoadTimeStamp,
+    o.DataSource AS OrderSource,
+    o.StoreFront,
+    o.Locale,
+    COALESCE(rl.RefundID, r.RefundID) AS RefundID,
+    COALESCE(r.RefundCreatedAt, o.CancelledAt) AS OrderPlacedTimeStamp,
+    o.ProcessedAt AS OrderProcessedTimeStamp,
+    o.UpdatedAt AS OrderUpdatedTimeStamp,
+    o.CancelledAt AS OrderCancelledTimeStamp,
+    r.RefundCreatedAt AS RefundTimeStamp,
+    o.CancelledAt IS NOT NULL AS IsCancelled,
+    o.IsSent,
+    o.IsProcessed,
+    o.CancelReason,
+    o.FinancialStatus,
+    COALESCE(o.FulfillmentStatus, li.FulfillmentStatus) AS FulfillmentStatus,
+    'ONLINE' as FulfillmentType,
+    
+    -- Customer fields
+    o.CustomerID,
+    UPPER(o.CustomerFirstName) AS CustomerFirstName,
+    UPPER(o.CustomerLastName) AS CustomerLastName,
+    LOWER(o.CustomerEmail) AS CustomerEmail,
+    o.CustomerPhone,
+    UPPER(o.CustomerState) AS CustomerState,
+    o.CustomerVerifiedEmail,
+    o.CustomerTaxExempt,
+    o.RLCTag,
+    o.NewsletterTag,
+    o.ProspectTag,
+    o.ShopTag,
+    
+    -- Shipping address
+    o.ShippingAddressAddress1,
+    o.ShippingAddressAddress2,
+    o.ShippingAddressCity,
+    o.ShippingAddressProvince,
+    o.ShippingAddressCountry,
+    o.ShippingAddressCountryCodeV2 AS ShippingAddressCountryCode,
+    o.ShippingAddressZip,
+    o.ShippingAddressPhone,
+
+    -- Store Address 
+    CAST(NULL AS STRING) AS  StoreId,
+    CAST(NULL AS STRING) AS  StoreName,
+    CAST(NULL AS STRING) AS  StoreType,
+    CAST(NULL AS STRING) AS  StoreAddressLine1, 
+    CAST(NULL AS STRING) AS StoreAddressLine2, 
+    CAST(NULL AS STRING) AS StoreCity, 
+    CAST(NULL AS STRING) AS StoreState, 
+    CAST(NULL AS STRING) AS StoreCountryCode, 
+    CAST(NULL AS STRING) AS StoreZip,
+    CAST(NULL AS BOOL) AS  AGStoreFlag,
+
+    -- Merchant Details
+    CAST(NULL AS STRING) AS OperatorId,
+    CAST(NULL AS STRING) AS RegisterId,
+    CAST(NULL AS STRING) AS TransactionId,
+    CAST(NULL AS STRING) AS StoreAssociateId,
+    
+    -- Product fields
+    COALESCE(rl.Name, li.Name) AS ProductName,
+    li.Title AS ProductTitle,
+    COALESCE(rl.SKU, li.SKU) AS ProductCode,
+    li.VariantID AS SkuCode,
+    li.Vendor AS ProductVendor,
+
+    -- Order type flags
+    0 AS IsGrossOrder,
+    1 AS IsReturnOrder,
+    1 AS IsNetOrder,
+    0 AS IsExchangeOrder,
+
+    -- Currency
+    o.CurrencyCode,
+    o.SubtotalPricePresentmentCurrency AS PresentmentCurrency,
+
+    -- Discount fields
+    o.TotalDiscountsShopMoneyAmount AS OrderTotalDiscountShopValue,
+    o.TotalDiscountsShopMoneyAmount AS OrderTotalDiscountPresentmentValue,
+    0 AS UnitTotalDiscountShopValue,
+    0 AS UnitTotalDiscountPresentmentValue,
+    0 AS AttributedOrderPresentmentDiscount,
+    0 AS AttributedOrderShopDiscount,
+
+    -- Sales quantities and values (zero for refund lines)
+    0 AS QuantitySold,
+    0 AS SaleShopValueBeforeDiscountPreTax,
+    0 AS SaleShopValueAfterDiscountPreTax,
+    0 AS SalePresentmentValueBeforeDiscountPreTax,
+    0 AS SalePresentmentValueAfterDiscountPreTax,
+
+    -- Returns
+    CASE 
+      WHEN o.CancelledAt IS NULL AND ARRAY_LENGTH(o.RefundLineItems) > 0 THEN rl.Quantity 
+      WHEN o.CancelledAt IS NULL AND ARRAY_LENGTH(o.RefundLineItems) = 0 AND ARRAY_LENGTH(o.Refunds) - refund_position = 1 THEN li.Quantity 
+      ELSE 0 
+    END AS QuantityReturned,
+    CASE 
+      WHEN o.CancelledAt IS NULL AND ARRAY_LENGTH(o.RefundLineItems) > 0 
+        THEN SAFE_DIVIDE(rl.SubtotalShopMoneyAmount, rl.Quantity)
+      WHEN o.CancelledAt IS NULL AND ARRAY_LENGTH(o.Refunds) - refund_position = 1
+        THEN li.OriginalUnitPriceShopAmount - (SELECT IFNULL(SUM(da.ShopMoneyAmount), 0) 
+                                                FROM UNNEST(li.discountallocations) da)
+      ELSE 0 
+    END AS ReturnedShopValuePreTax,
+
+    --- Refund postition logic needed in below calculations for instances where shopify provides mutliple refund ids but no line ids...agreed with Mattel that we will attribute the full refund to the final order
+
+    -- Cancellations
+    COALESCE(CASE 
+      WHEN o.CancelledAt IS NOT NULL THEN Li.Quantity
+      ELSE 0 
+    END, 0) AS QuantityCancelled,
+    COALESCE(CASE 
+      WHEN o.CancelledAt IS NOT NULL THEN (li.OriginalUnitPriceShopAmount) - ((SELECT IFNULL(SUM(da.ShopMoneyAmount), 0) 
+                                                FROM UNNEST(li.discountallocations) da) / li.Quantity)
+      ELSE 0 
+    END, 0) AS CancelledShopValuePreTax,
+
+    -- Line item discounts (zero for refund lines)
+    0 AS DiscountShopValue,
+    
+    -- Tax (zero for sales, calculated for refunds)
+    0 AS TaxLinesShopAmount,
+    0 AS TaxLinesPresentmentAmount,
+    CASE 
+      WHEN(ARRAY_LENGTH(o.RefundLineItems) = 0 OR o.CancelledAt IS NOT NULL) AND ARRAY_LENGTH(o.Refunds) - refund_position = 1
+        THEN (SELECT IFNULL(SUM(tax.ShopMoneyAmount), 0) FROM UNNEST(li.TaxLines) tax)
+      WHEN ARRAY_LENGTH(o.RefundLineItems) > 0 AND rl.Quantity > 0 
+        THEN (SELECT IFNULL(SUM(tax.ShopMoneyAmount), 0) FROM UNNEST(li.TaxLines) tax) 
+             * SAFE_DIVIDE(rl.Quantity, li.Quantity)
+      ELSE 0 
+    END AS TaxLinesRefundedAmount,
+    CASE 
+      WHEN o.CancelledAt IS NOT NULL AND ARRAY_LENGTH(o.Refunds) - refund_position = 1
+        THEN (SELECT IFNULL(SUM(tax.ShopMoneyAmount), 0) FROM UNNEST(li.TaxLines) tax)
+      ELSE 0
+    END AS TaxLinesCancelledAmount,
+
+    -- Payment Details
+    ARRAY(select
+        STRUCT(PaymentGatewayNames AS   PaymentSource,  
+          CAST(NULL AS STRING) AS   CardType
+        )) AS Payments,  
+    CAST(NULL AS BOOL) AS   GiftCardUsed
+
+  FROM base_order_fields o
+  LEFT JOIN UNNEST(Refunds) r WITH OFFSET AS refund_position
+  LEFT JOIN UNNEST(LineItems) li 
+  LEFT JOIN UNNEST(RefundLineItems) rl ON rl.RefundID = r.RefundID AND li.LineItemID = rl.LineItemID
+  WHERE (r.RefundID is not null
+  OR cancelledAt is not null)
+  AND li.LineItemID is not null
+),
+
+LATEST AS (
+  SELECT
+    ARRAY_AGG(e ORDER BY e.BQLoadTimeStamp DESC, e.RefundTimeStamp DESC LIMIT 1)[OFFSET(0)].*
+  FROM returnlines_clean e
+  GROUP BY e.PrimaryKey
+)
+
+
+  SELECT
+    OrderID,
+    PrimaryKey,
+    BQLoadTimeStamp,
+    OrderNumber,
+    OrderSource,
+    StoreFront,
+    Locale,
+    OrderPlacedTimeStamp,
+    OrderProcessedTimeStamp,
+    OrderUpdatedTimeStamp,
+    OrderCancelledTimeStamp,
+    RefundTimeStamp,
+    IsCancelled,
+    IsSent,
+    IsProcessed,
+    CancelReason,
+    FinancialStatus,
+    FulfillmentStatus,
+    FulfillmentType,
+    
+    -- Customer fields
+    CustomerID,
+    CustomerFirstName,
+    CustomerLastName,
+    CustomerEmail,
+    CustomerPhone,
+    CustomerState,
+    CustomerVerifiedEmail,
+    CustomerTaxExempt,
+    RLCTag,
+    NewsletterTag,
+    ProspectTag,
+    ShopTag,
+    
+    -- Shipping address
+    ShippingAddressAddress1,
+    ShippingAddressAddress2,
+    ShippingAddressCity,
+    ShippingAddressProvince,
+    ShippingAddressCountry,
+    ShippingAddressCountryCode,
+    ShippingAddressZip,
+    ShippingAddressPhone,
+
+    -- Store Address 
+    StoreId,
+    StoreName,
+    StoreType,
+    StoreAddressLine1, 
+    StoreAddressLine2, 
+    StoreCity, 
+    StoreState, 
+    StoreCountryCode, 
+    StoreZip,
+    AGStoreFlag,
+    
+    -- Merchant Details
+    OperatorId,
+    RegisterId,
+    TransactionId,
+    StoreAssociateId,
+    
+    -- Product fields
+    ProductName,
+    ProductTitle,
+    ProductCode,
+    SkuCode,
+    ProductVendor,
+
+    -- Order type flags
+    IsGrossOrder,
+    IsReturnOrder,
+    IsNetOrder,
+    IsExchangeOrder,
+
+    -- Currency
+    CurrencyCode,
+    PresentmentCurrency,
+
+    -- Discount fields
+    OrderTotalDiscountShopValue,
+    OrderTotalDiscountPresentmentValue,
+    UnitTotalDiscountShopValue,
+    UnitTotalDiscountPresentmentValue,
+    AttributedOrderPresentmentDiscount,
+    AttributedOrderShopDiscount,
+
+    -- Sales quantities and values (zero for refund lines)
+    QuantitySold,
+    SaleShopValueBeforeDiscountPreTax,
+    SaleShopValueAfterDiscountPreTax,
+    SalePresentmentValueBeforeDiscountPreTax,
+    SalePresentmentValueAfterDiscountPreTax,
+
+    -- Returns
+    SUM(QuantityReturned) AS QuantityReturned,
+    SUM(ReturnedShopValuePreTax) AS ReturnedShopValuePreTax,
+
+    --- Refund postition logic needed in below calculations for instances where shopify provides mutliple refund ids but no line ids...agreed with Mattel that we will attribute the full refund to the final order
+
+    -- Cancellations
+    SUM(QuantityCancelled) AS QuantityCancelled,
+    SUM(CancelledShopValuePreTax) AS CancelledShopValuePreTax,
+
+    -- Line item discounts (zero for refund lines)
+    DiscountShopValue,
+    
+    -- Tax (zero for sales, calculated for refunds)
+    TaxLinesShopAmount,
+    TaxLinesPresentmentAmount,
+    SUM(TaxLinesRefundedAmount) AS TaxLinesRefundedAmount,
+    SUM(TaxLinesCancelledAmount) AS TaxLinesCancelledAmount,
+
+    -- Payment Details
+    Payments,  
+    GiftCardUsed
+    
+
+  FROM Latest
+  GROUP BY ALL
+

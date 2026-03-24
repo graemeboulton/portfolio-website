@@ -1,0 +1,785 @@
+config {
+  type: "table",
+  tags: ["sales_orders", "daily"],
+  disabled: false,  
+  schema: "xfuze_legacy",
+  assertions: {
+    uniqueKey: ["OrderID"]},
+  description: "Orders data with line items from Shopify landing table",
+  bigquery: {
+    partitionBy: "DATE(BqLoadTimeStamp)",
+    clusterBy: ["CustomerID", "OrderID"]
+  }
+}
+
+with NewFieldsHeader AS (
+  SELECT
+  --customer fields
+  publish_time,
+  REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.RawEntity.id'), r'(\d+)$') AS OrderID, 
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.updatedAt') AS UpdatedAt,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.customer.legacyResourceId') AS CustomerLegacyResourceId,
+  JSON_VALUE(data, '$.DataVersion') AS DataVersion,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.customerLocale') AS CustomerLocale, 
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.customerAcceptsMarketing') as BOOL) AS CustomerAcceptsMarketing,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.customer.note') AS CustomerNote,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.phone') AS Phone,
+
+   -- Order fields
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.legacyResourceId') AS OrderLegacyResourceId,
+  cast(JSON_VALUE(data, '$.DomainEvent.RawEntity.number')AS INT64) AS OrderNumber,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.confirmationNumber') AS ConfirmationNumber,
+
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.presentmentCurrencyCode') AS PresentmentCurrencyCode,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.closed') AS BOOL) AS Closed,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.edited') AS BOOL) AS Edited,
+  
+  -- Payment Gateway Names
+  COALESCE(JSON_QUERY_ARRAY(data, '$.DomainEvent.RawEntity.paymentGatewayNames'), []) AS PaymentGatewayNames,
+
+  -- Discount Codes Array
+  COALESCE(JSON_QUERY_ARRAY(data, '$.DomainEvent.RawEntity.discountCode'), []) AS DiscountCodes,
+
+  --financial
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.returnStatus')  AS ReturnStatus,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.fullyPaid') AS BOOL)  AS FullyPaid,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.unpaid') AS BOOL)  AS Unpaid,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.requiresShipping') AS BOOL)  AS RequiresShipping,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.taxExempt') AS BOOL)  AS TaxExempt,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.taxesIncluded') AS BOOL)  AS taxesIncluded,
+
+  -- Source fields
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.sourceIdentifier')  AS SourceIdentifier,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.sourceName')  AS SourceName,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.registeredSourceUrl') AS RegisteredSourceUrl,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.clientIp')  AS ClientIp,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.discountCode') AS DiscountCode,
+  
+  -- Quantity/Weight fields
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.subtotalLineItemsQuantity') AS INT64)  AS SubtotalLineItemsQuantity,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.currentSubtotalLineItemsQuantity') AS INT64)  AS CurrentSubtotalLineItemsQuantity,
+  SAFE_CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.sourceIdentifier') AS INT64)  AS totalWeight,
+  SAFE_CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.sourceIdentifier') AS INT64)  AS currentTotalWeight,
+
+
+  -- Original total price fields
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.totalPriceSet.presentmentMoney.amount') AS NUMERIC) AS OriginalTotalPricePresentmentMoney,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.totalPriceSet.shopMoney.amount') AS NUMERIC)  AS OriginalTotalPriceShopMoney,
+
+    -- Current subtotal price fields
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.currentSubtotalPriceSet.presentmentMoney.amount') AS NUMERIC) AS CurrentSubtotalPricePresentmentMoney,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.currentSubtotalPriceSet.shopMoney.amount') AS NUMERIC)  AS CurrentSubtotalPriceShopMoney,
+
+    -- Current total price fields
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.currentTotalPriceSet.presentmentMoney.amount') AS NUMERIC) AS CurrentTotalPricePresentmentMoney,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.currentTotalPriceSet.shopMoney.amount') AS NUMERIC) AS CurrentTotalPriceShopMoney,
+
+    -- Current total tax fields
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.currentTotalTaxSet.presentmentMoney.amount') AS NUMERIC) AS CurrentTotalTaxPresentmentMoney,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.currentTotalTaxSet.shopMoney.amount') AS NUMERIC) AS CurrentTotalTaxShopMoney,
+
+    -- Current shipping price fields
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.currentShippingPriceSet.presentmentMoney.amount') AS NUMERIC) AS CurrentShippingPricePresentmentMoney,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.currentShippingPriceSet.shopMoney.amount') AS NUMERIC) AS CurrentShippingPriceShopMoney,
+
+    -- Current cart discount fields
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.currentCartDiscountAmountSet.presentmentMoney.amount') AS NUMERIC) AS CurrentCartDiscountPresentmentMoney,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.currentCartDiscountAmountSet.shopMoney.amount') AS NUMERIC) AS CurrentCartDiscountShopMoney,
+  JSON_QUERY(n.data, '$.DomainEvent.RawEntity.cartDiscountAmountSet') AS CartDiscountAmountSet,
+
+    -- Current total discounts fields
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.currentTotalDiscountsSet.presentmentMoney.amount') AS NUMERIC) AS CurrentTotalDiscountsPresentmentMoney,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.currentTotalDiscountsSet.shopMoney.amount') AS NUMERIC) AS CurrentTotalDiscountsShopMoney,
+
+    -- Net payment fields
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.netPaymentSet.presentmentMoney.amount') AS NUMERIC) AS NetPaymentPresentmentMoney,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.netPaymentSet.shopMoney.amount') AS NUMERIC) AS NetPaymentShopMoney,
+
+    -- Total capturable fields
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.totalCapturableSet.presentmentMoney.amount') AS NUMERIC) AS TotalCapturablePresentmentMoney,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.totalCapturableSet.shopMoney.amount') AS NUMERIC) AS TotalCapturableShopMoney,
+
+    -- Total outstanding fields
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.totalOutstandingSet.presentmentMoney.amount') AS NUMERIC) AS TotalOutstandingPresentmentMoney,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.totalOutstandingSet.shopMoney.amount') AS NUMERIC) AS TotalOutstandingShopMoney,
+
+    -- Total received fields
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.totalReceivedSet.presentmentMoney.amount') AS NUMERIC) AS TotalReceivedPresentmentMoney,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.totalReceivedSet.shopMoney.amount') AS NUMERIC) AS TotalReceivedShopMoney,
+
+    -- Total refunded fields
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.totalRefundedSet.presentmentMoney.amount') AS NUMERIC) AS TotalRefundedPresentmentMoney,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.totalRefundedSet.shopMoney.amount') AS NUMERIC) AS TotalRefundedShopMoney,
+
+    -- Refund discrepancy fields
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.refundDiscrepancySet.presentmentMoney.amount') AS NUMERIC) AS RefundDiscrepancyPresentmentMoney,
+  CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.refundDiscrepancySet.shopMoney.amount') AS NUMERIC) AS RefundDiscrepancyShopMoney,
+
+  -- Billing address fields
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.billingAddress.id')  AS BillingAddressId,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.billingAddress.firstName')  AS BillingAddressFirstName,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.billingAddress.lastName')  AS BillingAddressLastName,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.billingAddress.name')  AS BillingAddressName,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.billingAddress.address1')  AS BillingAddressLine1,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.billingAddress.address2')  AS BillingAddressLine2,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.billingAddress.city')  AS BillingAddressCity,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.billingAddress.province')  AS BillingAddressProvince,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.billingAddress.provinceCode')  AS BillingAddressProvinceCode,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.billingAddress.country')  AS BillingAddressCountry,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.billingAddress.countryCodeV2')  AS BillingAddressCountryCode,
+  JSON_VALUE(data, '$.DomainEvent.RawEntity.billingAddress.zip')  AS BillingAddressZip,
+  JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.BillingAddressCompany') AS BillingAddressCompany,
+  JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.BillingAddressPhone') AS BillingAddressPhone,
+  CAST(JSON_VALUE(data, '$.DomainEvent.ConsumerEvent.PayloadString.BillingAddressMatchesShippingAddress') AS BOOL) AS BillingAddressMatchesShippingAddress,
+  
+  
+  --- tax lines
+    (
+      SELECT ARRAY_AGG(STRUCT(
+        CAST(idx AS STRING) AS TaxLineIndex,
+        JSON_VALUE(tl, '$.title') AS Title,
+        CAST(JSON_VALUE(tl, '$.rate') AS NUMERIC) AS Rate,
+        CAST(JSON_VALUE(tl, '$.priceSet.shopMoney.amount') AS NUMERIC) AS Price
+      ))
+      FROM UNNEST(JSON_QUERY_ARRAY(data, '$.DomainEvent.RawEntity.taxLines')) AS tl WITH OFFSET idx
+    ) AS TaxLines,
+
+  --transaction info 
+  (
+      SELECT ARRAY_AGG(STRUCT(
+        REGEXP_EXTRACT(JSON_VALUE(txn, '$.id'), r'(\d+)$') AS TransactionID,
+        JSON_VALUE(txn, '$.kind') AS Kind,
+        JSON_VALUE(txn, '$.gateway') AS Gateway,
+        JSON_VALUE(txn, '$.formattedGateway') AS FormattedGateway,
+        JSON_VALUE(txn, '$.status') AS Status,
+        DATETIME(TIMESTAMP(JSON_VALUE(txn, '$.createdAt')), "America/Chicago") AS CreatedAt,
+        DATETIME(TIMESTAMP(JSON_VALUE(txn, '$.processedAt')), "America/Chicago") AS ProcessedAt,
+        CAST(JSON_VALUE(txn, '$.test') AS BOOL) AS Test,
+        CAST(JSON_VALUE(txn, '$.amountSet.shopMoney.amount') AS NUMERIC) AS AmountShopMoneyAmount,
+        JSON_VALUE(txn, '$.amountSet.shopMoney.currencyCode') AS AmountShopMoneyCurrency,
+        CAST(JSON_VALUE(txn, '$.amountSet.presentmentMoney.amount') AS NUMERIC) AS AmountPresentmentMoneyAmount,
+        JSON_VALUE(txn, '$.amountSet.presentmentMoney.currencyCode') AS AmountPresentmentMoneyCurrency,
+        CAST(JSON_VALUE(txn, '$.totalUnsettledSet.shopMoney.amount') AS NUMERIC) AS TotalUnsettledShopMoneyAmount,
+        JSON_VALUE(txn, '$.totalUnsettledSet.shopMoney.currencyCode') AS TotalUnsettledShopMoneyCurrency,
+        JSON_QUERY(txn, '$.parentTransaction') AS ParentTransaction,
+        JSON_VALUE(txn, '$.parentTransaction.id') AS ParentTransactionId
+      ))
+      FROM UNNEST(JSON_QUERY_ARRAY(data, '$.DomainEvent.RawEntity.transactions')) AS txn
+    ) AS Transactions,
+
+from ${ref("orders_new_fields_landing_table")} n
+    WHERE contains_substr(JSON_VALUE(data, '$.DomainEvent.RawEntity.id') , 'Order') -- should be only headers
+)
+
+, NewFieldsHeaderLATEST AS (
+  SELECT
+    ARRAY_AGG(e ORDER BY e.publish_time DESC LIMIT 1)[OFFSET(0)].*
+  FROM NewFieldsHeader e
+  GROUP BY e.OrderID, e.UpdatedAt
+)
+
+
+, OrdersData AS (
+  SELECT
+    o.data, -- Pass the full data object for joins
+    o.publish_time as BQloadTimeStamp,
+    TIMESTAMP(JSON_VALUE(o.data, '$.EventOccurredTimestampUTC')) AS EventOccurredTimestampUTC,
+    JSON_VALUE(o.data, '$.EventID') AS EventID,
+    REGEXP_EXTRACT(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.id'), r'(\d+)$') AS EntityID,
+    JSON_VALUE(o.data, '$.EventType') AS EventType,
+    JSON_VALUE(o.data, '$.EventVersion') AS EventVersion,
+    n.DataVersion,
+    JSON_VALUE(o.data, '$.DataSource') AS DataSource,
+    JSON_VALUE(o.data, '$.Locale') AS Locale,
+    JSON_VALUE(o.data, '$.Storefront') AS Storefront,
+    '600' AS StoreNumber,
+
+    -- Customer fields
+    REGEXP_EXTRACT(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.customer.id'), r'(\d+)$') AS CustomerID,
+    n.CustomerLegacyResourceId,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.customer.email') AS CustomerEmail,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.customer.firstName') AS CustomerFirstName,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.customer.lastName') AS CustomerLastName,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.customer.phone') AS CustomerPhone,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.customer.state') AS CustomerState,
+    n.CustomerLocale,
+    n.CustomerAcceptsMarketing,
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.customer.verifiedEmail') AS BOOL) AS CustomerVerifiedEmail,
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.customer.taxExempt') AS BOOL) AS CustomerTaxExempt,
+    n.CustomerNote,
+    DATETIME(
+    TIMESTAMP(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.customer.createdAt')),
+    "America/Chicago"
+    ) AS CustomerCreatedAt,
+    DATETIME(
+    TIMESTAMP(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.customer.updatedAt')),
+    "America/Chicago"
+    ) AS CustomerUpdatedAt,
+    COALESCE(JSON_QUERY_ARRAY(o.data, '$.DomainEvent.RawEntity.customer.tags'), []) AS CustomerTags,
+
+    -- App/Channel fields
+    CAST(NULL AS STRING) AS AppId,
+    CAST(NULL AS STRING) AS AppName,
+    CAST(NULL AS STRING) AS ChannelDefinitionHandle,
+    CAST(NULL AS STRING) AS ChannelDefinitionId,
+    CAST(NULL AS STRING) AS ChannelDefinitionName,
+    CAST(NULL AS STRING) AS ChannelId,
+
+    -- Order fields
+    REGEXP_EXTRACT(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.id'), r'(\d+)$') AS OrderID,
+    n.OrderLegacyResourceId,
+    n.OrderNumber,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.name') AS OrderName,
+    n.ConfirmationNumber,
+    DATETIME(
+    TIMESTAMP(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.createdAt')), 
+    "America/Chicago"
+    ) AS CreatedAt,
+    DATETIME(
+    TIMESTAMP(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.processedAt')),
+    "America/Chicago"
+    ) AS ProcessedAt,
+    DATETIME(
+    TIMESTAMP(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.updatedAt')),
+    "America/Chicago"
+    ) AS UpdatedAt,
+
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.currencyCode') AS CurrencyCode,
+    n.PresentmentCurrencyCode,
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.confirmed') AS BOOL) AS Confirmed,
+    n.Closed,
+    n.Edited,
+    COALESCE(CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.test') AS BOOL), false) AS TestOrder,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.poNumber') AS PONumber,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.note') AS Note,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.cancelReason') AS CancelReason,
+    DATETIME(
+    TIMESTAMP(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.cancelledAt')),
+    "America/Chicago"
+    ) AS CancelledAt,
+    DATETIME(
+    TIMESTAMP(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.closedAt')),
+    "America/Chicago"
+    ) AS ClosedAt,
+    COALESCE(JSON_QUERY_ARRAY(o.data, '$.DomainEvent.RawEntity.tags'), []) AS Tags,
+
+    -- Payment Gateway Names
+    n.PaymentGatewayNames,
+
+    -- Discount Codes Array
+    n.DiscountCodes,
+
+    --financial
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.displayFinancialStatus') AS FinancialStatus,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.displayFulfillmentStatus') AS FulfillmentStatus,
+    n.ReturnStatus,
+    n.FullyPaid,
+    n.Unpaid,
+    n.RequiresShipping,
+    n.TaxExempt,
+    n.TaxesIncluded,
+
+    -- Source fields
+    n.SourceIdentifier,
+    n.SourceName,
+    n.RegisteredSourceUrl,
+    n.ClientIp,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.phone') AS Phone,
+    n.DiscountCode,
+
+    -- Risk assessment fields
+    CAST(NULL AS STRING) AS RiskLevel,
+    CAST(NULL AS STRING) AS RiskRecommendation,
+    CAST(NULL AS ARRAY<STRUCT<Description STRING, FactIndex STRING, Sentiment STRING>>) AS RiskAssessmentFacts,
+
+    -- Quantity/Weight fields
+    n.SubtotalLineItemsQuantity,
+    n.CurrentSubtotalLineItemsQuantity,
+    n.TotalWeight,
+    n.CurrentTotalWeight,
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalPriceSet.presentmentMoney.amount') AS NUMERIC) AS SaleValueAfterDiscountPostTaxPresentmentMoney,
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalPriceSet.shopMoney.amount') AS NUMERIC) AS SaleValueAfterDiscountPostTaxShopMoney,
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.subtotalPriceSet.presentmentMoney.amount') AS NUMERIC) AS SaleValueAfterDiscountPreTaxPresentmentMoney,
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.subtotalPriceSet.shopMoney.amount') AS NUMERIC) AS SaleValueAfterDiscountPreTaxShopMoney,
+
+    -- Original total price fields
+    n.OriginalTotalPricePresentmentMoney,
+    n.OriginalTotalPriceShopMoney,
+
+    -- Current subtotal price fields
+    n.CurrentSubtotalPricePresentmentMoney,
+    n.CurrentSubtotalPriceShopMoney,
+
+    -- Current total price fields
+    n.CurrentTotalPricePresentmentMoney,
+    n.CurrentTotalPriceShopMoney,
+
+    -- Current total tax fields
+    n.CurrentTotalTaxPresentmentMoney,
+    n.CurrentTotalTaxShopMoney,
+
+    -- Current shipping price fields
+    n.CurrentShippingPricePresentmentMoney,
+    n.CurrentShippingPriceShopMoney,
+
+    -- Current cart discount fields
+    n.CurrentCartDiscountPresentmentMoney,
+    n.CurrentCartDiscountShopMoney,
+    n.CartDiscountAmountSet,
+
+    -- Current total discounts fields
+    n.CurrentTotalDiscountsPresentmentMoney,
+    n.CurrentTotalDiscountsShopMoney,
+
+    -- Net payment fields
+    n.NetPaymentPresentmentMoney,
+    n.NetPaymentShopMoney,
+
+    -- Total capturable fields
+    n.TotalCapturablePresentmentMoney,
+    n.TotalCapturableShopMoney,
+
+    -- Total outstanding fields
+    n.TotalOutstandingPresentmentMoney,
+    n.TotalOutstandingShopMoney,
+
+    -- Total received fields
+    n.TotalReceivedPresentmentMoney,
+    n.TotalReceivedShopMoney,
+
+    -- Total refunded fields
+    n.TotalRefundedPresentmentMoney,
+    n.TotalRefundedShopMoney,
+
+    -- Refund discrepancy fields
+    n.RefundDiscrepancyPresentmentMoney,
+    n.RefundDiscrepancyShopMoney,
+
+    -- Price fields
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.subtotalPriceSet.shopMoney.amount') AS NUMERIC) AS SubtotalPriceShopMoneyAmount,
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.subtotalPriceSet.presentmentMoney.amount') AS NUMERIC) AS SubtotalPricePresentmentMoneyAmount,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.subtotalPriceSet.shopMoney.currencyCode') AS SubtotalPriceShopCurrency,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.subtotalPriceSet.presentmentMoney.currencyCode') AS SubtotalPricePresentmentCurrency,
+
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalDiscountsSet.shopMoney.amount') AS NUMERIC) AS TotalDiscountsShopMoneyAmount,
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalDiscountsSet.presentmentMoney.amount') AS NUMERIC) AS TotalDiscountsPresentmentMoneyAmount,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalDiscountsSet.shopMoney.currencyCode') AS TotalDiscountsShopCurrency,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalDiscountsSet.presentmentMoney.currencyCode') AS TotalDiscountsPresentmentCurrency,
+
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalPriceSet.shopMoney.amount') AS NUMERIC) AS TotalPriceShopMoneyAmount,
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalPriceSet.presentmentMoney.amount') AS NUMERIC) AS TotalPricePresentmentMoneyAmount,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalPriceSet.shopMoney.currencyCode') AS TotalPriceShopCurrency,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalPriceSet.presentmentMoney.currencyCode') AS TotalPricePresentmentCurrency,
+
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalTaxSet.shopMoney.amount') AS NUMERIC) AS TotalTaxShopMoneyAmount,
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalTaxSet.presentmentMoney.amount') AS NUMERIC) AS TotalTaxPresentmentMoneyAmount,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalTaxSet.shopMoney.currencyCode') AS TotalTaxShopCurrency,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalTaxSet.presentmentMoney.currencyCode') AS TotalTaxPresentmentCurrency,
+
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalShippingPriceSet.shopMoney.amount') AS NUMERIC) AS TotalShippingPriceShopMoneyAmount,
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalShippingPriceSet.presentmentMoney.amount') AS NUMERIC) AS TotalShippingPricePresentmentMoneyAmount,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalShippingPriceSet.shopMoney.currencyCode') AS TotalShippingPriceShopCurrency,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.totalShippingPriceSet.presentmentMoney.currencyCode') AS TotalShippingPricePresentmentCurrency,
+
+    -- Billing address fields
+    n.BillingAddressId,
+    n.BillingAddressFirstName,
+    n.BillingAddressLastName,
+    n.BillingAddressName,
+    n.BillingAddressLine1,
+    n.BillingAddressLine2,
+    n.BillingAddressCity,
+    n.BillingAddressProvince,
+    n.BillingAddressProvinceCode,
+    n.BillingAddressCountry,
+    n.BillingAddressCountryCode,
+    n.BillingAddressZip,
+    n.BillingAddressCompany,
+    n.BillingAddressPhone,
+    CAST(JSON_VALUE(o.data, '$.DomainEvent.ConsumerEvent.PayloadString.BillingAddressMatchesShippingAddress') AS BOOL) AS BillingAddressMatchesShippingAddress,
+
+    -- Shipping address fields
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.shippingAddress.address1') AS ShippingAddressAddress1,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.shippingAddress.address2') AS ShippingAddressAddress2,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.shippingAddress.city') AS ShippingAddressCity,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.shippingAddress.provinceCode') AS ShippingAddressProvinceCode,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.shippingAddress.country') AS ShippingAddressCountry,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.shippingAddress.countryCodeV2') AS ShippingAddressCountryCodeV2,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.shippingAddress.zip') AS ShippingAddressZip,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.shippingAddress.phone') AS ShippingAddressPhone,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.shippingAddress.id') AS ShippingAddressID,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.shippingAddress.firstName') AS ShippingAddressFirstName,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.shippingAddress.lastName') AS ShippingAddressLastName,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.shippingAddress.name') AS ShippingAddressName,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.shippingAddress.company') AS ShippingAddressCompany,
+    JSON_VALUE(o.data, '$.DomainEvent.RawEntity.shippingAddress.province') AS ShippingAddressProvince,
+
+    -- Refunds
+    (
+      SELECT ARRAY_AGG(STRUCT(
+        REGEXP_EXTRACT(JSON_VALUE(refund, '$.id'), r'(\d+)$') AS RefundID,
+        DATETIME(
+        TIMESTAMP(JSON_VALUE(refund, '$.createdAt')),
+        "America/Chicago"
+        ) AS RefundCreatedAt,
+        JSON_VALUE(refund, '$.note') AS RefundNote,
+        CAST(JSON_VALUE(refund, '$.totalRefundedSet.shopMoney.amount') AS NUMERIC) AS TotalRefundedShopMoneyAmount,
+        JSON_VALUE(refund, '$.totalRefundedSet.shopMoney.currencyCode') AS TotalRefundedShopCurrency,
+        CAST(JSON_VALUE(refund, '$.totalRefundedSet.presentmentMoney.amount') AS NUMERIC) AS TotalRefundedPresentmentMoneyAmount,
+        JSON_VALUE(refund, '$.totalRefundedSet.presentmentMoney.currencyCode') AS TotalRefundedPresentmentCurrency
+      ))
+      FROM UNNEST(JSON_QUERY_ARRAY(o.data, '$.DomainEvent.RawEntity.refunds')) AS refund
+    ) AS Refunds,
+
+    -- Discount Applications - from separate events, handled via join
+    CAST(NULL AS ARRAY<STRUCT<AllocationMethod STRING, TargetSelection STRING, TargetType STRING, ValueTypeName STRING>>) AS DiscountApplications,
+
+    -- Transactions
+    n.Transactions,
+
+    -- Tax Lines (Order level)
+    n.TaxLines
+
+  FROM ${ref("ps_shopify_orders")} o
+
+  LEFT JOIN NewFieldsHeaderLATEST n
+  on REGEXP_EXTRACT(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.id'), r'(\d+)$') =  n.OrderID
+  and JSON_VALUE(o.data, '$.DomainEvent.RawEntity.updatedAt') = n.UpdatedAt
+
+  WHERE CONTAINS_SUBSTR(o.data, 'totalPriceSet') AND CONTAINS_SUBSTR(o.data, 'displayFulfillmentStatus') -- this should only contain headers
+  )
+
+-- NEW CTE TO GET CURRENCY FROM ORDER EVENTS
+,OrderCurrencies AS (
+  SELECT
+    REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.RawEntity.id'), r'(\d+)$') AS OrderID,
+     JSON_VALUE(data, '$.DomainEvent.RawEntity.currencyCode') AS CurrencyCode,
+  FROM ${ref("ps_shopify_orders")}
+  WHERE CONTAINS_SUBSTR(data, 'totalPriceSet') AND CONTAINS_SUBSTR(data, 'displayFulfillmentStatus') -- this should only contain headers
+)
+
+
+,NewFieldsLineItems AS (
+  SELECT 
+    -- Core identifiers
+      publish_time,
+      REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.RawEntity.__parentId'), r'(\d+)$') AS ParentOrderID,
+      JSON_VALUE(data, '$.DomainEvent.RawEntity.updatedAt') AS UpdatedAt,
+      SAFE_CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.currentQuantity') AS INT64) AS CurrentQuantity,
+      SAFE_CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.fulfillableQuantity') AS INT64) AS FulfillableQuantity,
+      CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.restockable') AS BOOL) AS Restockable,
+
+      --pricing 
+      CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.variant.originalTotalSet.shopMoney.amount') AS NUMERIC) AS OriginalTotalShopAmount,
+      JSON_VALUE(data, '$.DomainEvent.RawEntity.variant.originalTotalSet.shopMoney.currencyCode')  AS OriginalTotalShopCurrency,
+      CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.variant.originalTotalSet.presentmentMoney.amount') AS NUMERIC) AS OriginalTotalPresentmentAmount,
+      JSON_VALUE(data, '$.DomainEvent.RawEntity.variant.originalTotalSet.presentmentMoney.currencyCode') AS OriginalTotalPresentmentCurrency,
+
+      CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.variant.discountedTotalSet.shopMoney.amount') AS NUMERIC)  AS DiscountedTotalShopAmount,
+      JSON_VALUE(data, '$.DomainEvent.RawEntity.variant.discountedTotalSet.shopMoney.currencyCode') AS DiscountedTotalShopCurrency,
+      CAST(JSON_VALUE(data, '$.DomainEvent.RawEntity.variant.discountedTotalSet.shopMoney.amount') AS NUMERIC)  AS DiscountedTotalPresentmentAmount,
+      JSON_VALUE(data, '$.DomainEvent.RawEntity.variant.discountedTotalSet.shopMoney.currencyCode') AS DiscountedTotalPresentmentCurrency,
+
+      -- Product and variant info
+      REGEXP_EXTRACT(JSON_VALUE(n.data, '$.DomainEvent.RawEntity.product.id'), r'(\d+)$') AS ProductID,
+      JSON_VALUE(n.data, '$.DomainEvent.RawEntity.product.legacyResourceId') AS ProductLegacyResourceID,
+      JSON_VALUE(n.data, '$.DomainEvent.RawEntity.product.handle') AS ProductHandle,
+      JSON_VALUE(n.data, '$.DomainEvent.RawEntity.product.vendor') AS ProductVendor,
+      JSON_VALUE(n.data, '$.DomainEvent.RawEntity.product.productType') AS ProductType,
+     
+      -- Product Price Ranges
+      CAST(JSON_VALUE(n.data, '$.DomainEvent.RawEntity.product.compareAtPriceRange.minVariantCompareAtPrice.amount') AS NUMERIC) AS ProductCompareAtPriceRangeMinAmount,
+      JSON_VALUE(n.data, '$.DomainEvent.RawEntity.product.compareAtPriceRange.minVariantCompareAtPrice.currencyCode') AS ProductCompareAtPriceRangeMinCurrency,
+      CAST(JSON_VALUE(n.data, '$.DomainEvent.RawEntity.product.compareAtPriceRange.maxVariantCompareAtPrice.amount') AS NUMERIC) AS ProductCompareAtPriceRangeMaxAmount,
+      JSON_VALUE(n.data, '$.DomainEvent.RawEntity.product.compareAtPriceRange.maxVariantCompareAtPrice.currencyCode') AS ProductCompareAtPriceRangeMaxCurrency,
+      CAST(JSON_VALUE(n.data, '$.DomainEvent.RawEntity.product.priceRangeV2.minVariantPrice.amount') AS NUMERIC) AS ProductPriceRangeMinAmount,
+      JSON_VALUE(n.data, '$.DomainEvent.RawEntity.product.priceRangeV2.minVariantPrice.currencyCode') AS ProductPriceRangeMinCurrency,
+      CAST(JSON_VALUE(n.data, '$.DomainEvent.RawEntity.product.priceRangeV2.maxVariantPrice.amount') AS NUMERIC) AS ProductPriceRangeMaxAmount,
+      JSON_VALUE(n.data, '$.DomainEvent.RawEntity.product.priceRangeV2.maxVariantPrice.currencyCode') AS ProductPriceRangeMaxCurrency,
+
+      CAST(JSON_VALUE(n.data, '$.DomainEvent.RawEntity.variant.price') AS NUMERIC) AS VariantPrice,
+      CAST(JSON_VALUE(n.data, '$.DomainEvent.RawEntity.variant.compareAtPrice') AS NUMERIC) AS VariantCompareAtPrice
+
+from ${ref("orders_new_fields_landing_table")} n
+    WHERE contains_substr(JSON_VALUE(data, '$.DomainEvent.RawEntity.id') , 'LineItem') -- should be only lineitems
+)
+
+, NewFieldsLineItemsLATEST AS (
+  SELECT
+    ARRAY_AGG(e ORDER BY e.publish_time DESC LIMIT 1)[OFFSET(0)].*
+  FROM NewFieldsLineItems e
+  GROUP BY e.ParentOrderID, e.UpdatedAt
+)
+
+,LineItems AS (
+  SELECT 
+    ParentOrderID,
+    ARRAY_AGG(STRUCT(
+      LineItemID,
+      Name,
+      Title,
+      Quantity,
+      CurrentQuantity,
+      FulfillableQuantity,
+      SKU,
+      Vendor,
+      Taxable,
+      RequiresShipping,
+      Restockable,
+      FulfillmentStatus,
+      OriginalUnitPriceShopAmount,
+      OriginalUnitPriceShopCurrency,
+      OriginalUnitPricePresentmentAmount,
+      OriginalUnitPricePresentmentCurrency,
+      OriginalTotalShopAmount,
+      OriginalTotalShopCurrency,
+      OriginalTotalPresentmentAmount,
+      OriginalTotalPresentmentCurrency,
+      DiscountedUnitPriceShopAmount,
+      DiscountedUnitPriceShopCurrency,
+      DiscountedUnitPricePresentmentAmount,
+      DiscountedUnitPricePresentmentCurrency,
+      DiscountedTotalShopAmount,
+      DiscountedTotalShopCurrency,
+      DiscountedTotalPresentmentAmount,
+      DiscountedTotalPresentmentCurrency,
+      ProductID,
+      ProductLegacyResourceID,
+      ProductHandle,
+      ProductVendor,
+      ProductType,
+      ProductCompareAtPriceRangeMinAmount,
+      ProductCompareAtPriceRangeMinCurrency,
+      ProductCompareAtPriceRangeMaxAmount,
+      ProductCompareAtPriceRangeMaxCurrency,
+      ProductPriceRangeMinAmount,
+      ProductPriceRangeMinCurrency,
+      ProductPriceRangeMaxAmount,
+      ProductPriceRangeMaxCurrency,
+      VariantID,
+      VariantLegacyResourceID,
+      VariantTitle,
+      VariantSKU,
+      VariantPrice,
+      VariantCompareAtPrice,
+      FulfillmentServiceID,
+      FulfillmentServiceHandle,
+      DiscountAllocations,
+      CustomAttributes,
+      TaxLines
+    )) as LineItems
+  FROM (
+    SELECT DISTINCT
+      -- Core identifiers
+      REGEXP_EXTRACT(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.__parentId'), r'(\d+)$') AS ParentOrderID,
+      REGEXP_EXTRACT(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.id'), r'(\d+)$') AS LineItemID,
+      JSON_VALUE(o.data, '$.DomainEvent.RawEntity.name') AS Name,
+      JSON_VALUE(o.data, '$.DomainEvent.RawEntity.title') AS Title,
+      CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.quantity') AS NUMERIC) AS Quantity,
+      n.CurrentQuantity,
+      n.FulfillableQuantity,
+      JSON_VALUE(o.data, '$.DomainEvent.RawEntity.sku') AS SKU,
+      JSON_VALUE(o.data, '$.DomainEvent.RawEntity.vendor') AS Vendor,
+      CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.taxable') AS BOOL) AS Taxable,
+      CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.requiresShipping') AS BOOL) AS RequiresShipping,
+      n.Restockable,
+      JSON_VALUE(o.data, '$.DomainEvent.RawEntity.fulfillmentStatus') AS FulfillmentStatus,
+
+      -- Pricing fields (shop money and presentment money)
+      CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.originalUnitPriceSet.shopMoney.amount') AS NUMERIC) AS OriginalUnitPriceShopAmount,
+      JSON_VALUE(o.data, '$.DomainEvent.RawEntity.originalUnitPriceSet.shopMoney.currencyCode') AS OriginalUnitPriceShopCurrency,
+      CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.originalUnitPriceSet.presentmentMoney.amount') AS NUMERIC) AS OriginalUnitPricePresentmentAmount,
+      JSON_VALUE(o.data, '$.DomainEvent.RawEntity.originalUnitPriceSet.presentmentMoney.currencyCode') AS OriginalUnitPricePresentmentCurrency,
+
+      n.OriginalTotalShopAmount,
+      n.OriginalTotalShopCurrency,
+      n.OriginalTotalPresentmentAmount,
+      n.OriginalTotalPresentmentCurrency,
+
+      CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.discountedUnitPriceSet.shopMoney.amount') AS NUMERIC) AS DiscountedUnitPriceShopAmount,
+      JSON_VALUE(o.data, '$.DomainEvent.RawEntity.discountedUnitPriceSet.shopMoney.currencyCode') AS DiscountedUnitPriceShopCurrency,
+      CAST(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.discountedUnitPriceSet.presentmentMoney.amount') AS NUMERIC) AS DiscountedUnitPricePresentmentAmount,
+      JSON_VALUE(o.data, '$.DomainEvent.RawEntity.discountedUnitPriceSet.presentmentMoney.currencyCode') AS DiscountedUnitPricePresentmentCurrency,
+
+      n.DiscountedTotalShopAmount,
+      n.DiscountedTotalShopCurrency,
+      n.DiscountedTotalPresentmentAmount,
+      n.DiscountedTotalPresentmentCurrency,
+
+      (SELECT ARRAY_AGG(STRUCT(
+          CAST(JSON_VALUE(tl, '$.allocatedAmountSet.shopMoney.amount') AS NUMERIC) AS ShopMoneyAmount,
+          JSON_VALUE(tl, '$.allocatedAmountSet.shopMoney.currencyCode') AS ShopMoneyCurrency,
+          CAST(JSON_VALUE(tl, '$.allocatedAmountSet.presentmentMoney.amount') AS NUMERIC) AS PresentmentMoneyAmount,
+          JSON_VALUE(tl, '$.allocatedAmountSet.presentmentMoney.currencyCode') AS PresentmentMoneyCurrency,
+          cast(null as string) AS DiscountApplicationType,
+          IF(JSON_VALUE(tl, '$.discountapplication._typename') = 'DiscountCodeApplication', JSON_VALUE(tl, '$.discountapplication.code'), null) AS DiscountCode
+          
+        ))
+        FROM UNNEST(JSON_QUERY_ARRAY(o.data, '$.DomainEvent.RawEntity.discountAllocations')) AS tl
+      ) AS DiscountAllocations,
+
+      -- Product and variant info
+      n.ProductID,
+      n.ProductLegacyResourceID,
+      n.ProductHandle,
+      n.ProductVendor,
+      n.ProductType,
+
+      -- Product Price Ranges
+      n.ProductCompareAtPriceRangeMinAmount,
+      n.ProductCompareAtPriceRangeMinCurrency,
+      n.ProductCompareAtPriceRangeMaxAmount,
+      n.ProductCompareAtPriceRangeMaxCurrency,
+      n.ProductPriceRangeMinAmount,
+      n.ProductPriceRangeMinCurrency,
+      n.ProductPriceRangeMaxAmount,
+      n.ProductPriceRangeMaxCurrency,
+
+      REGEXP_EXTRACT(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.variant.id'), r'(\d+)$') AS VariantID,
+      JSON_VALUE(o.data, '$.DomainEvent.RawEntity.variant.legacyResourceId') AS VariantLegacyResourceID,
+      JSON_VALUE(o.data, '$.DomainEvent.RawEntity.variant.title') AS VariantTitle,
+      JSON_VALUE(o.data, '$.DomainEvent.RawEntity.variant.sku') AS VariantSKU,
+      n.VariantPrice,
+      n.VariantCompareAtPrice,
+
+      -- Fulfillment service
+      REGEXP_EXTRACT(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.fulfillmentService.id'), r'(\d+)$') AS FulfillmentServiceID,
+      JSON_VALUE(o.data, '$.DomainEvent.RawEntity.fulfillmentService.handle') AS FulfillmentServiceHandle,
+
+      -- Custom Attributes
+      (
+        SELECT ARRAY_AGG(STRUCT(
+          JSON_VALUE(ca, '$.key') AS Key,
+          JSON_VALUE(ca, '$.value') AS Value
+        ))
+        FROM UNNEST(JSON_QUERY_ARRAY(o.data, '$.DomainEvent.RawEntity.customAttributes')) AS ca
+      ) AS CustomAttributes,
+
+      -- Tax lines 
+      (
+        SELECT ARRAY_AGG(STRUCT(
+          JSON_VALUE(tl, '$.title') AS Title,
+          CAST(JSON_VALUE(tl, '$.rate') AS NUMERIC) AS Rate,
+          CAST(NULL AS NUMERIC) AS RatePercentage,
+          CAST(JSON_VALUE(tl, '$.priceSet.shopMoney.amount') AS NUMERIC) AS ShopMoneyAmount,
+          JSON_VALUE(tl, '$.priceSet.shopMoney.currencyCode') AS ShopMoneyCurrency,
+          CAST(JSON_VALUE(tl, '$.priceSet.presentmentMoney.amount') AS NUMERIC) AS PresentmentMoneyAmount,
+          JSON_VALUE(tl, '$.priceSet.presentmentMoney.currencyCode') AS PresentmentMoneyCurrency
+        ))
+        FROM UNNEST(JSON_QUERY_ARRAY(o.data, '$.DomainEvent.RawEntity.taxLines')) AS tl
+      ) AS TaxLines 
+
+    FROM ${ref("ps_shopify_orders")} o
+   
+    LEFT JOIN NewFieldsLineItems n
+    on REGEXP_EXTRACT(JSON_VALUE(o.data, '$.DomainEvent.RawEntity.__parentId'), r'(\d+)$') =  n.ParentOrderID
+    and JSON_VALUE(o.data, '$.DomainEvent.RawEntity.updatedAt') = n.UpdatedAt
+    
+    WHERE contains_substr(o.data, '__parentId')
+  ) l
+  GROUP BY ParentOrderID
+)
+
+, RefundMap as (
+  SELECT
+  OrderID,
+  r.RefundID
+  FROM OrdersData, UNNEST(Refunds) r
+)
+
+, RefundLineItemsAggregated AS (
+  SELECT
+    ParentOrderID,
+    ARRAY_AGG(
+      STRUCT(
+        RefundID,
+        RefundLineItemID,
+        LineItemID,
+        Name,
+        SKU,
+        Quantity,
+        PriceShopMoneyAmount,
+        PriceShopMoneyCurrency,
+        SubtotalShopMoneyAmount,
+        SubtotalShopMoneyCurrency,
+        RestockType,
+        Restocked
+      )
+      ORDER BY RefundLineItemID
+    ) AS RefundLineItems
+  FROM (
+    SELECT DISTINCT
+      rm.OrderID as ParentOrderID,
+      REGEXP_EXTRACT(JSON_VALUE(landing.data, '$.DomainEvent.RawEntity.data.refund.id'), r'(\d+)$') AS RefundID,
+      REGEXP_EXTRACT(JSON_VALUE(refund_line_item, '$.node.id'), r'(\d+)$') AS RefundLineItemID,
+      REGEXP_EXTRACT(JSON_VALUE(refund_line_item, '$.node.lineItem.id'), r'(\d+)$') AS LineItemID,
+      JSON_VALUE(refund_line_item, '$.node.lineItem.name') AS Name,
+      JSON_VALUE(refund_line_item, '$.node.lineItem.sku') AS SKU,
+      CAST(JSON_VALUE(refund_line_item, '$.node.quantity') AS NUMERIC) AS Quantity,
+
+      -- Price info
+      CAST(JSON_VALUE(refund_line_item, '$.node.priceSet.shopMoney.amount') AS NUMERIC) AS PriceShopMoneyAmount,
+      JSON_VALUE(refund_line_item, '$.node.priceSet.shopMoney.currencyCode') AS PriceShopMoneyCurrency,
+
+      -- Subtotal info
+      CAST(JSON_VALUE(refund_line_item, '$.node.subtotalSet.shopMoney.amount') AS NUMERIC) AS SubtotalShopMoneyAmount,
+      JSON_VALUE(refund_line_item, '$.node.subtotalSet.shopMoney.currencyCode') AS SubtotalShopMoneyCurrency,
+
+      -- Restock info
+      JSON_VALUE(refund_line_item, '$.node.restockType') AS RestockType,
+      CAST(JSON_VALUE(refund_line_item, '$.node.restocked') AS BOOL) AS Restocked
+    FROM ${ref("ps_shopify_orders")} AS landing
+    LEFT JOIN RefundMap rm
+      ON REGEXP_EXTRACT(JSON_VALUE(landing.data, '$.DomainEvent.RawEntity.data.refund.id'), r'(\d+)$') = rm.RefundID
+    CROSS JOIN UNNEST(
+      JSON_QUERY_ARRAY(landing.data, '$.DomainEvent.RawEntity.data.refund.refundLineItems.edges')
+    ) AS refund_line_item
+    WHERE JSON_VALUE(landing.data, '$.DomainEvent.RawEntity.data.refund.id') IS NOT NULL
+  )
+  GROUP BY ParentOrderID
+)
+
+
+,DiscountApplicationsAggregated AS (
+  SELECT
+    REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.RawEntity.__parentId'), r'(\d+)$') AS ParentOrderID,
+    ARRAY_AGG(
+      STRUCT(
+        JSON_VALUE(data, '$.DomainEvent.RawEntity.allocationMethod') AS AllocationMethod,
+        JSON_VALUE(data, '$.DomainEvent.RawEntity.targetSelection') AS TargetSelection,
+        JSON_VALUE(data, '$.DomainEvent.RawEntity.targetType') AS TargetType,
+        JSON_VALUE(data, '$.DomainEvent.RawEntity.value.__typename') AS ValueTypeName
+      )
+    ) AS DiscountApplications
+  FROM ${ref("orders_new_fields_landing_table")}
+  WHERE JSON_VALUE(data, '$.DomainEvent.RawEntity.allocationMethod') IS NOT NULL
+    AND JSON_VALUE(data, '$.DomainEvent.RawEntity.__parentId') IS NOT NULL
+  GROUP BY REGEXP_EXTRACT(JSON_VALUE(data, '$.DomainEvent.RawEntity.__parentId'), r'(\d+)$')
+)
+
+, BASE AS (
+  SELECT
+    o.* EXCEPT(data, DiscountApplications),
+    da.DiscountApplications AS DiscountApplications,
+    li.LineItems AS LineItems,
+    rli.RefundLineItems AS RefundLineItems
+
+  FROM OrdersData o
+  LEFT JOIN LineItems li
+    ON o.OrderID = li.ParentOrderID
+  LEFT JOIN RefundLineItemsAggregated rli
+    ON o.OrderID = rli.ParentOrderID
+  LEFT JOIN DiscountApplicationsAggregated da
+    ON o.OrderID = da.ParentOrderID
+),
+
+LATEST AS (
+  SELECT
+    ARRAY_AGG(e ORDER BY e.BQLoadTimeStamp DESC LIMIT 1)[OFFSET(0)].*
+  FROM BASE e
+  GROUP BY e.EntityID
+)
+
+SELECT
+  *
+FROM Latest

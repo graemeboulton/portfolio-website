@@ -1,0 +1,364 @@
+config {
+  type: "table",
+  tags: ["ga4", "daily"],
+  schema: "xfuze_ga",
+  disabled: false,
+  description: "legacy ga data",
+  bigquery: {
+    partitionBy: "date",
+    clusterBy: ["user_pseudo_id"]
+  },
+}
+
+
+-- Extract UTM parameters from page location
+WITH utm_extracted AS (
+  SELECT
+    event_date,
+    user_pseudo_id,
+    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_id') AS ga_session_id,
+    (SELECT value.int_value FROM UNNEST(event_params) WHERE key = 'ga_session_number') AS ga_session_number,
+    event_timestamp,
+    PARSE_DATE('%Y%m%d', CAST(event_date AS STRING)) as event_date_parsed,
+    event_name,
+    
+    -- Choose between new (post Sept 30) and old traffic source fields
+    IF(PARSE_DATE('%Y%m%d', event_date) >= "2024-10-09", 
+      session_traffic_source_last_click.cross_channel_campaign.campaign_name, 
+      collected_traffic_source.manual_campaign_name
+    ) AS campaign,
+    
+    IF(PARSE_DATE('%Y%m%d', event_date) >= "2024-10-09",
+      session_traffic_source_last_click.cross_channel_campaign.source,
+      collected_traffic_source.manual_source
+    ) AS source,
+    
+    IF(PARSE_DATE('%Y%m%d', event_date) >= "2024-10-09", 
+      session_traffic_source_last_click.cross_channel_campaign.medium,
+      collected_traffic_source.manual_medium
+    ) AS medium,
+    
+    IF(PARSE_DATE('%Y%m%d', event_date) >= "2024-09-30",
+      session_traffic_source_last_click.manual_campaign.content,
+      collected_traffic_source.manual_content
+    ) AS content,
+    
+    collected_traffic_source.gclid,
+    collected_traffic_source.dclid,
+    (SELECT value.string_value FROM UNNEST(event_params) WHERE key = "page_location") AS page_location
+    
+  FROM  ${ref("ga4_mc_events_new")}
+  WHERE  user_pseudo_id IS NOT NULL
+  AND event_date_parsed <=  "2024-10-15"
+),
+
+-- Fill in missing session numbers using LAG
+session_numbered AS (
+  SELECT
+   -- --table_suffix,
+    event_date,
+    user_pseudo_id,
+    ga_session_id,
+    IFNULL(
+      ga_session_number,
+      LAG(ga_session_number) OVER (PARTITION BY event_date, user_pseudo_id ORDER BY event_timestamp ASC)
+    ) AS ga_session_number,
+    event_timestamp,
+    event_name,
+    campaign,
+    source,
+    medium,
+    content,
+    gclid,
+    dclid,
+    -- Use the same fields for both attribution and UTM (simplified from original)
+    source AS utm_source,
+    medium AS utm_medium,
+    campaign AS utm_campaign,
+    content AS utm_content,
+    gclid AS utm_gclid,
+    dclid AS utm_dclid
+  FROM utm_extracted
+)
+
+
+-- Fix invalid session IDs and create attribution structs
+,base_events AS (
+  SELECT
+    --table_suffix,
+    event_date,
+    user_pseudo_id,
+    
+    -- Fix session IDs that are NULL or too small (< 1000)
+    IF(ga_session_id IS NULL OR ga_session_id < 1000,
+      IF(IFNULL(MAX(ga_session_id) OVER (PARTITION BY event_date, user_pseudo_id, ga_session_number), 0) > 1000,
+        MAX(ga_session_id) OVER (PARTITION BY event_date, user_pseudo_id, ga_session_number),
+        MIN(UNIX_SECONDS(TIMESTAMP_MICROS(event_timestamp))) OVER (PARTITION BY event_date, user_pseudo_id, ga_session_number)
+      ), 
+      ga_session_id
+    ) AS ga_session_id,
+    
+    ga_session_number,
+    DATETIME(TIMESTAMP_MICROS(event_timestamp),  "America/Chicago") as event_timestamp,
+    event_name,
+    
+    -- Create attribution struct for session_start events
+    IF(event_name = 'session_start',
+      (SELECT AS STRUCT
+        LOWER(campaign) AS campaign,
+        IF(gclid IS NOT NULL AND source NOT IN ('google', 'youtube'), 'google', LOWER(source)) AS source,
+        CASE 
+          WHEN gclid IS NOT NULL THEN "cpc"
+          WHEN dclid IS NOT NULL THEN "display"
+          ELSE LOWER(medium)
+        END AS medium,
+        LOWER(content) AS content,
+        gclid,
+        dclid,
+        FALSE AS utm_sourced
+      ), 
+      NULL
+    ) AS ss_attr,
+    
+    -- Choose between collected_traffic_source and utm parameters
+    -- Prefer collected_traffic_source if it has more non-null values
+    IF(COALESCE(source, medium, campaign, gclid, dclid) IS NOT NULL 
+        AND (IF(source IS NULL, 0, 1) + IF(medium IS NULL, 0, 1) + IF(campaign IS NULL, 0, 1) + IF(gclid IS NULL, 0, 1) + IF(dclid IS NULL, 0, 1))
+        >= (IF(utm_source IS NULL, 0, 1) + IF(utm_medium IS NULL, 0, 1) + IF(utm_campaign IS NULL, 0, 1) + IF(utm_gclid IS NULL, 0, 1) + IF(utm_dclid IS NULL, 0, 1)),
+      (SELECT AS STRUCT
+        LOWER(campaign) AS campaign,
+        IF(gclid IS NOT NULL AND source NOT IN ('google', 'youtube'), 'google', LOWER(source)) AS source,
+        CASE 
+          WHEN gclid IS NOT NULL THEN "cpc"
+          WHEN dclid IS NOT NULL THEN "display"
+          ELSE LOWER(medium)
+        END AS medium,
+        LOWER(content) AS content,
+        gclid,
+        dclid,
+        FALSE AS utm_sourced
+      ),
+      (SELECT AS STRUCT
+        LOWER(utm_campaign) AS campaign,
+        IF(COALESCE(gclid, utm_gclid) IS NOT NULL AND utm_source NOT IN ('google', 'youtube'), 'google', LOWER(utm_source)) AS source,
+        CASE 
+          WHEN COALESCE(gclid, utm_gclid) IS NOT NULL THEN "cpc"
+          WHEN COALESCE(dclid, utm_dclid) IS NOT NULL THEN "display"
+          ELSE LOWER(utm_medium)
+        END AS medium,
+        LOWER(utm_content) AS content,
+        utm_gclid AS gclid,
+        utm_dclid AS dclid,
+        TRUE AS utm_sourced
+      )
+    ) AS attr
+    
+  FROM session_numbered
+)
+
+
+-- Filter to events with attribution data
+,attr_events AS (
+  SELECT
+    --table_suffix,
+    PARSE_DATE('%Y%m%d', event_date) AS date,
+    user_pseudo_id,
+    ga_session_id,
+    user_pseudo_id || "-" || ga_session_id AS session_id,
+    ga_session_id AS session_start,
+    event_name,
+    event_timestamp,
+    attr,
+    ss_attr
+  FROM base_events
+  WHERE 
+    COALESCE(ss_attr.source, ss_attr.medium, ss_attr.campaign, ss_attr.gclid) IS NOT NULL
+    OR event_name NOT IN ('session_start', 'first_visit')
+)
+
+-- Aggregate attribution data per session
+,session_attribution AS (
+  SELECT
+    MIN(date) AS date,
+    user_pseudo_id,
+    session_id,
+    ga_session_id,
+    session_start,
+    
+    -- Get session_start attribution (first session_start event with attribution)
+    ARRAY_AGG(
+      IF(COALESCE(ss_attr.source, ss_attr.medium, ss_attr.campaign, ss_attr.gclid) IS NOT NULL, 
+        ss_attr, 
+        NULL
+      ) IGNORE NULLS
+      ORDER BY event_timestamp ASC 
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS session_start_traffic_source,
+    
+    -- Get first attribution in the session
+    ARRAY_AGG(
+      IF(COALESCE(attr.source, attr.medium, attr.campaign, attr.gclid) IS NOT NULL, 
+        attr, 
+        NULL
+      )
+      ORDER BY event_timestamp ASC 
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS session_first_traffic_source,
+    
+    -- Get last attribution in the session
+    ARRAY_AGG(
+      IF(COALESCE(attr.source, attr.medium, attr.campaign, attr.gclid) IS NOT NULL, 
+        attr, 
+        NULL
+      ) IGNORE NULLS
+      ORDER BY event_timestamp DESC  
+      LIMIT 1
+    )[SAFE_OFFSET(0)] AS session_last_traffic_source
+    
+  FROM attr_events
+  WHERE session_id IS NOT NULL
+  GROUP BY user_pseudo_id, session_id, ga_session_id, session_start
+)
+
+-- Combine session_start and first attribution, handle midnight cutoffs
+,session_combined AS (
+  SELECT 
+    date,
+    session_id,
+    user_pseudo_id,
+    session_start,
+    session_start + TIMESTAMP_DIFF(date, DATE(TIMESTAMP_SECONDS(session_start)), SECOND) AS session_start_offset,
+    session_start_traffic_source AS session_start_traffic_source_raw,
+    session_first_traffic_source AS session_first_traffic_source_raw,
+    
+    -- Prefer session_start attribution, fall back to first event attribution
+    IF(COALESCE(session_start_traffic_source.source, session_start_traffic_source.medium, session_start_traffic_source.campaign) IS NOT NULL,
+      session_start_traffic_source, 
+      session_first_traffic_source
+    ) AS session_first_traffic_source,
+    
+    session_last_traffic_source
+  FROM session_attribution
+),
+
+-- Handle multiple dates per session (midnight cutoffs) and get last non-null attribution
+session_windowed AS (
+  SELECT 
+    date,
+    user_pseudo_id,
+    session_id,
+    session_start,
+    session_start_offset,
+    
+    -- Get the first attribution for this session across all dates
+    FIRST_VALUE(session_first_traffic_source) 
+      OVER (PARTITION BY user_pseudo_id, session_start ORDER BY date) 
+      AS session_first_traffic_source,
+    
+    -- Get the last non-null attribution for this session across all dates
+    LAST_VALUE(
+      IF(COALESCE(session_last_traffic_source.source, session_last_traffic_source.medium, session_last_traffic_source.campaign) IS NULL, 
+        NULL, 
+        session_last_traffic_source
+      ) IGNORE NULLS
+    ) 
+    OVER (PARTITION BY user_pseudo_id, session_start ORDER BY date) 
+    AS session_last_traffic_source
+    
+  FROM session_combined
+),
+
+-- Apply last non-direct logic: look back 90 days for last non-direct attribution
+last_non_direct_applied AS (
+  SELECT 
+    *,
+    -- If current session is direct, get the last non-direct session within 90 days
+    IF(
+      COALESCE(session_first_traffic_source.source, session_first_traffic_source.medium, session_first_traffic_source.campaign) IS NULL,
+      LAST_VALUE(
+        IF(COALESCE(session_last_traffic_source.source, session_last_traffic_source.medium, session_last_traffic_source.campaign) IS NULL,
+          NULL, 
+          session_last_traffic_source
+        ) IGNORE NULLS
+      ) 
+      OVER (PARTITION BY user_pseudo_id ORDER BY session_start ASC RANGE BETWEEN 7776000 PRECEDING AND 0 PRECEDING),
+      session_first_traffic_source
+    ) AS last_non_direct
+    
+  FROM session_windowed
+),
+
+-- Calculate default channel grouping
+final_with_channel AS (
+  SELECT 
+    *, 
+    CASE
+    WHEN
+      LOWER(last_non_direct.medium) = 'organic'
+      THEN 'Organic Search'
+    WHEN
+      LOWER(last_non_direct.medium) = 'cpc'
+      THEN 'Paid Search'
+    WHEN
+      REGEXP_CONTAINS(LOWER(last_non_direct.medium), r'email|sms|flow') AND REGEXP_CONTAINS(LOWER(last_non_direct.source), r'klaviyo|marketing')
+      THEN 'CRM Email/SMS'
+    WHEN
+      REGEXP_CONTAINS(LOWER(last_non_direct.medium), r'digital_direct')
+      THEN 'Digital Direct'
+    WHEN
+      LOWER(last_non_direct.medium) = 'digital_programmatic' OR REGEXP_CONTAINS(LOWER(last_non_direct.source), r'ttd')
+      THEN 'Digital Programmatic'
+    WHEN
+      (
+        REGEXP_CONTAINS(LOWER(last_non_direct.medium), r'^paid_social.*|^paid-social$|psoc|^facebook_.*|^instagram_.*')
+        OR LOWER(last_non_direct.medium) = 'paid'
+      )
+      AND REGEXP_CONTAINS(LOWER(last_non_direct.source), r'fb|ig|tiktok|meta|facebook|instagram|fb/ig|reddit|pint|pinterest|snapchat|ig/fb|reddit\.com|m\.facebook\.com')
+      THEN 'Paid Social'
+    WHEN
+      LOWER(last_non_direct.medium) = 'organic_social'
+      THEN 'Mattel Organic Social'
+    WHEN
+      REGEXP_CONTAINS(LOWER(last_non_direct.medium), r'referral')
+      AND REGEXP_CONTAINS(LOWER(last_non_direct.source), r'facebook|pinterest|tiktok|reddit|instagram|linkedin|snapchat|youtube|x|t\.co')
+      THEN 'External Organic Social'
+    WHEN
+      LOWER(last_non_direct.source) = 'igshopping' OR LOWER(last_non_direct.medium) = 'product_shelf'
+      THEN 'Social Shopping'
+    WHEN
+      (LOWER(last_non_direct.source) = 'google' AND LOWER(last_non_direct.medium) = 'product_sync')
+      OR LOWER(last_non_direct.campaign) = 'shopping free listings'
+      THEN 'Google Shopping'
+    WHEN
+      LOWER(last_non_direct.medium) = 'affiliate' OR LOWER(last_non_direct.source) = 'affiliate'
+      THEN 'Affiliate'
+    WHEN
+      LOWER(last_non_direct.medium) = 'physical'
+      THEN 'Live Event'
+    WHEN
+      LOWER(last_non_direct.medium) = 'pr'
+      THEN 'Public Relations'
+    WHEN
+      REGEXP_CONTAINS(LOWER(last_non_direct.medium), r'referral')
+      AND NOT REGEXP_CONTAINS(LOWER(last_non_direct.source), r'facebook|pinterest|tiktok|reddit|instagram|linkedin|snapchat|youtube|x|t\.co|ig|fb')
+      THEN 'Referral'
+    WHEN
+      REGEXP_CONTAINS(LOWER(last_non_direct.source), r'shop_app')
+      THEN 'Shop App'
+    ELSE
+    "Unassigned"
+    END as default_channel_grouping
+  FROM last_non_direct_applied
+)
+
+-- Final output
+SELECT 
+  date, 
+  user_pseudo_id, 
+  session_id,
+  session_start,
+  session_start_offset,
+  default_channel_grouping,
+  last_non_direct
+FROM final_with_channel
+WHERE date <=  "2024-10-15"

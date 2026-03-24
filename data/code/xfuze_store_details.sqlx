@@ -1,0 +1,51 @@
+config {
+  type: "table",
+  tags: ["store", "sales_orders", "daily"],
+  schema: "xfuze_store",
+  assertions: {
+    uniqueKey: ["StoreID"]},
+  description: "Orders data with line items from Shopify landing table",
+}
+
+
+WITH Store_Details as (
+SELECT 
+Store,
+case
+    when Store.StoreID in ('1924', '1917',  '1926', '1202', '1925', '1922' ) then 'Boutique'
+    when Store.StoreID in ('1322', '1791','1651') then 'Flagship'
+    when Store.StoreID is null then  'Shopify'
+    else 'Not AG'
+    end as StoreType,
+publish_time
+FROM ${ref("predict_spring_lower_silver_union")}
+)
+
+, dedupe as (
+  SELECT
+    ARRAY_AGG(e ORDER BY publish_time DESC)[OFFSET(0)].*
+  FROM Store_Details e
+  GROUP BY e.Store.StoreID
+)
+
+SELECT
+Store.storeId,
+StoreType,
+Store.name,
+Store.addressLine1,
+Store.addressLine2,
+Store.city,
+Store.state,
+Store.postalCode,
+Store.countryCode,
+Store.latitude,
+Store.longitude,
+Store.timeZoneId,
+Store.mainPhone,
+Store.phone,
+Store.allowTryAtStore,
+Store.productScanCodeType,
+Store.hours
+FROM DeDupe
+
+

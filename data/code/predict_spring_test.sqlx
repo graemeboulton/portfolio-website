@@ -1,0 +1,30 @@
+config {
+    type: "assertion",
+    tags: ["qa"]
+}
+
+WITH
+  MismatchRows AS (
+  SELECT
+    *
+  FROM (
+    SELECT
+      DISTINCT sa.ProductCode AS saProductCode,
+      sa.OrderNumber AS saOrderNumber,
+      pd.ProductCode AS pdProductCode,
+      pd.OrderNumber AS pdOrderNumber
+    FROM
+      ${ref("predict_spring_silver")} sa
+    LEFT JOIN
+      `xfuze-mattel-uat.xfuze_predict_spring.predict_spring_silver` pd
+    ON
+      sa.ProductCode = pd.ProductCode
+      AND sa.StoreFront = pd.StoreFront)
+  WHERE
+    pdProductCode IS NULL)
+SELECT
+  COUNT(*) AS cnt
+FROM
+  MismatchRows
+HAVING
+  cnt > 0

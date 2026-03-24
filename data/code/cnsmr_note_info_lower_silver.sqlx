@@ -1,0 +1,30 @@
+-- config {
+--   type: "incremental",
+--   schema: "xfuze_staging",
+--   name: "cnsmr_note_info_lower_silver",
+--   description: "Consumer note information unpacked from raw Pub/Sub messages",
+--   tags: ["consumer", "daily"],
+--   uniqueKey: ["CNSMR_NOTE_ID"],
+--   bigquery: {
+--     partitionBy: "DATE(publish_time)",
+--     clusterBy: ["CNSMR_ID"]
+--   }
+-- }
+
+-- SELECT
+--   SAFE_CAST(JSON_VALUE(data, '$.CNSMR_NOTE_ID') AS INT64) AS CNSMR_NOTE_ID,
+--   SAFE_CAST(JSON_VALUE(data, '$.CNSMR_ID') AS INT64) AS CNSMR_ID,
+--   SAFE_CAST(JSON_VALUE(data, '$.BRND_ID') AS INT64) AS BRND_ID,
+--   JSON_VALUE(data, '$.CNSMR_NOTE_TXT') AS CNSMR_NOTE_TXT,
+--   JSON_VALUE(data, '$.CRTD_BY') AS CRTD_BY,
+--   JSON_VALUE(data, '$.CRTD_DTTM') AS CRTD_DTTM,
+--   JSON_VALUE(data, '$.UPDT_BY') AS UPDT_BY,
+--   JSON_VALUE(data, '$.UPDT_DTTM') AS UPDT_DTTM,
+--   JSON_VALUE(data, '$.NOTE_DSPLY_TXT') AS NOTE_DSPLY_TXT,
+--   JSON_VALUE(data, '$.CSR_USR_ID') AS CSR_USR_ID,
+--   subscription_name,
+--   message_id,
+--   publish_time,
+--   TO_JSON_STRING(attributes) AS attributes
+-- FROM ${ref("raw_cnsmr_note_info")}
+-- ${ when(incremental(), `WHERE publish_time > (SELECT MAX(publish_time) FROM ${self()})`) }
