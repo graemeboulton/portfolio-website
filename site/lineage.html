@@ -1,3 +1,8 @@
+---
+layout: none
+title: Data Lineage Explorer
+permalink: /lineage.html
+---
 <!DOCTYPE html>
 <html lang="en">
 <head>
@@ -170,7 +175,7 @@ const TIER_COLORS = {
 async function loadData() {
   try {
     // Try relative path for GitHub Pages, fall back to same-dir
-    const urls = ['assets/data/lineage.json', 'lineage.json', 'data/lineage.json'];
+    const urls = ['assets/data/lineage.json', '/assets/data/lineage.json', 'lineage.json'];
     let res = null;
     for (const url of urls) {
       try { res = await fetch(url); if (res.ok) break; } catch(e) {}
