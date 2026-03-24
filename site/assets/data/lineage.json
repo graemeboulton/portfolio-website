@@ -1,0 +1,1478 @@
+{
+  "meta": {
+    "generated": "2026-03-24",
+    "source": "mattel-dataform sqlx files",
+    "total": 93
+  },
+  "tiers": {
+    "gold_analytics": {
+      "label": "Gold Analytics",
+      "color": "#ca8a04",
+      "desc": "Final BI-layer marts consumed by Tableau dashboards"
+    },
+    "gold_silver": {
+      "label": "Gold / Silver",
+      "color": "#16a34a",
+      "desc": "Cleaned, unified silver tables feeding Gold Analytics"
+    },
+    "silver": {
+      "label": "Silver / Staging",
+      "color": "#2563eb",
+      "desc": "Intermediate union and lower_silver transformation tables"
+    },
+    "source": {
+      "label": "Source / Raw",
+      "color": "#7c3aed",
+      "desc": "Landing tables, raw feeds, and external data sources"
+    }
+  },
+  "tier_order": [
+    "gold_analytics",
+    "gold_silver",
+    "silver",
+    "source"
+  ],
+  "nodes": [
+    {
+      "id": "bh_points_data_lower_silver",
+      "schema": "xfuze_bubblehouse",
+      "name": "bh_points_data_lower_silver",
+      "short": "Bh Points Data",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "bi_agg_weekly_monthly_performance_creations",
+      "schema": "bi_marketing",
+      "name": "bi_agg_weekly_monthly_performance_creations",
+      "short": "Big Weekly Monthly Performance",
+      "tier": "gold_analytics",
+      "type": "incremental",
+      "desc": "",
+      "tags": [
+        "ga4",
+        "weekly",
+        "sales_orders"
+      ],
+      "deps": [
+        "bi_customer_trading_mart_creations",
+        "bi_daily_channel_performance_creations",
+        "xfuze_ga_events_cleaned_creations_us",
+        "xfuze_product_silver"
+      ],
+      "tableau": [
+        "Weekly-Monthly Creations Dashboard"
+      ]
+    },
+    {
+      "id": "bi_customer_analytical_view_trading_mart_creations",
+      "schema": "bi_customer",
+      "name": "bi_customer_analytical_view_trading_mart_creations",
+      "short": "Customer Analytical View Trading Mart",
+      "tier": "gold_analytics",
+      "type": "incremental",
+      "desc": "customer transactions for an anlaytical view",
+      "tags": [
+        "sales_orders",
+        "products",
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "bi_single_view_of_customer_creations",
+        "sales_orders_silver_analytical_view",
+        "xfuze_consumer_master_history_silver",
+        "xfuze_product_silver"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "bi_customer_journeys_creations",
+      "schema": "bi_marketing",
+      "name": "bi_customer_journeys_creations",
+      "short": "Customer Journeys",
+      "tier": "gold_analytics",
+      "type": "incremental",
+      "desc": "",
+      "tags": [
+        "ga4",
+        "daily"
+      ],
+      "deps": [
+        "xfuze_ga_sessions_creations"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "bi_customer_loyalty_trading_mart_ag",
+      "schema": "bi_customer",
+      "name": "bi_customer_loyalty_trading_mart_ag",
+      "short": "Customer Loyalty Trading Mart",
+      "tier": "gold_analytics",
+      "type": "table",
+      "desc": "monthly single view of customer",
+      "tags": [
+        "sales_orders",
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "bi_customer_trading_mart_ag",
+        "xfuze_bubblehouse_silver",
+        "xfuze_consumer_master_base_info_silver",
+        "xfuze_consumer_master_loyalty_union",
+        "xfuze_store_details"
+      ],
+      "tableau": [
+        "Loyalty Dashboard - Pre Transaction"
+      ]
+    },
+    {
+      "id": "bi_customer_loyalty_trading_mart_month_end",
+      "schema": "bi_customer",
+      "name": "bi_customer_loyalty_trading_mart_month_end",
+      "short": "Customer Loyalty Trading Mart Month End",
+      "tier": "gold_analytics",
+      "type": "table",
+      "desc": "monthly single view of customer",
+      "tags": [
+        "sales_orders",
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "bi_customer_trading_mart_ag",
+        "sales_orders_predict_spring_silver_union",
+        "xfuze_bubblehouse_silver",
+        "xfuze_consumer_master_base_info_silver",
+        "xfuze_consumer_master_loyalty_month_end",
+        "xfuze_store_details"
+      ],
+      "tableau": [
+        "Loyalty Dashboard - End of Month"
+      ]
+    },
+    {
+      "id": "bi_customer_trading_mart_ag",
+      "schema": "bi_customer",
+      "name": "bi_customer_trading_mart_ag",
+      "short": "Customer Trading Mart",
+      "tier": "gold_analytics",
+      "type": "incremental",
+      "desc": "customer transactions",
+      "tags": [
+        "sales_orders",
+        "products",
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "bi_single_view_of_customer_ag",
+        "sales_orders_silver",
+        "xfuze_bubblehouse_silver",
+        "xfuze_consumer_master_loyalty_union",
+        "xfuze_product_silver",
+        "xfuze_store_details"
+      ],
+      "tableau": [
+        "American Girl KPI Overview",
+        "Pre Transaction View"
+      ]
+    },
+    {
+      "id": "bi_customer_trading_mart_creations",
+      "schema": "bi_customer",
+      "name": "bi_customer_trading_mart_creations",
+      "short": "Customer Trading Mart",
+      "tier": "gold_analytics",
+      "type": "incremental",
+      "desc": "customer transactions",
+      "tags": [
+        "sales_orders",
+        "products",
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "bi_single_view_of_customer_creations",
+        "sales_orders_silver",
+        "xfuze_consumer_master_history_silver",
+        "xfuze_product_silver"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "bi_daily_channel_performance_creations",
+      "schema": "bi_marketing",
+      "name": "bi_daily_channel_performance_creations",
+      "short": "Daily Channel Performance",
+      "tier": "gold_analytics",
+      "type": "incremental",
+      "desc": "",
+      "tags": [
+        "ga4",
+        "daily"
+      ],
+      "deps": [
+        "bi_customer_trading_mart_creations",
+        "xfuze_ga_sessions_creations"
+      ],
+      "tableau": [
+        "GA Insights"
+      ]
+    },
+    {
+      "id": "bi_single_view_of_customer_ag",
+      "schema": "bi_customer",
+      "name": "bi_single_view_of_customer_ag",
+      "short": "Single View Of Customer",
+      "tier": "gold_analytics",
+      "type": "table",
+      "desc": "monthly single view of customer",
+      "tags": [
+        "sales_orders",
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "sales_orders_silver",
+        "xfuze_consumer_master_base_info_silver",
+        "xfuze_consumer_master_history_silver"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "bi_single_view_of_customer_creations",
+      "schema": "bi_customer",
+      "name": "bi_single_view_of_customer_creations",
+      "short": "Single View Of Customer",
+      "tier": "gold_analytics",
+      "type": "table",
+      "desc": "monthly single view of customer",
+      "tags": [
+        "sales_orders",
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "sales_orders_silver",
+        "xfuze_consumer_master_base_info_silver",
+        "xfuze_consumer_master_history_silver"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "blueconic_history_events_lower_silver",
+      "schema": "xfuze_blueconic",
+      "name": "blueconic_history_events_lower_silver",
+      "short": "Blueconic History Events",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "blueconic_history_profile_lower_silver",
+      "schema": "xfuze_blueconic",
+      "name": "blueconic_history_profile_lower_silver",
+      "short": "Blueconic History Profile",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "blueconic_lylty_lower_silver",
+      "schema": "xfuze_staging",
+      "name": "blueconic_lylty_lower_silver",
+      "short": "Blueconic Lylty",
+      "tier": "silver",
+      "type": "table",
+      "desc": "Historic consumer loyalty information from Blueconic",
+      "tags": [
+        "customers"
+      ],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "blueconic_membership_events_lower_silver",
+      "schema": "xfuze_blueconic",
+      "name": "blueconic_membership_events_lower_silver",
+      "short": "Blueconic Membership Events",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "blueconic_membership_lower_silver",
+      "schema": "xfuze_staging",
+      "name": "blueconic_membership_lower_silver",
+      "short": "Blueconic Membership",
+      "tier": "silver",
+      "type": "table",
+      "desc": "Historic consumer loyalty information from Blueconic",
+      "tags": [
+        "customers"
+      ],
+      "deps": [
+        "mbrshp_mstr_lower_silver"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "blueconic_membership_profile_lower_silver",
+      "schema": "xfuze_blueconic",
+      "name": "blueconic_membership_profile_lower_silver",
+      "short": "Blueconic Membership Profile",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "brnd_mstr_lower_silver",
+      "schema": "xfuze_consumer_master",
+      "name": "brnd_mstr_lower_silver",
+      "short": "Brnd Mstr",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "bubblehouse_points_data_lower_silver",
+      "schema": "xfuze_staging",
+      "name": "bubblehouse_points_data_lower_silver",
+      "short": "Bubblehouse Points Data",
+      "tier": "silver",
+      "type": "incremental",
+      "desc": "bubblehouse points data unpacked",
+      "tags": [
+        "customers",
+        "daily"
+      ],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "cnsmr_addr_info_lower_silver",
+      "schema": "xfuze_staging",
+      "name": "cnsmr_addr_info_lower_silver",
+      "short": "Cnsmr Addr Info",
+      "tier": "silver",
+      "type": "incremental",
+      "desc": "Consumer address information unpacked from raw Pub/Sub messages",
+      "tags": [
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "raw_cnsmr_addr_info"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "cnsmr_chld_info_lower_silver",
+      "schema": "xfuze_staging",
+      "name": "cnsmr_chld_info_lower_silver",
+      "short": "Cnsmr Chld Info",
+      "tier": "silver",
+      "type": "incremental",
+      "desc": "Consumer child information unpacked from raw Pub/Sub messages",
+      "tags": [
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "raw_cnsmr_chld_info"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "cnsmr_info_lower_silver_inc",
+      "schema": "xfuze_staging",
+      "name": "cnsmr_info_lower_silver_inc",
+      "short": "Cnsmr Info",
+      "tier": "silver",
+      "type": "incremental",
+      "desc": "Consumer information unpacked from raw Pub/Sub messages",
+      "tags": [
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "raw_cnsmr_info"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "cnsmr_lylty_info_lower_silver_inc",
+      "schema": "xfuze_staging",
+      "name": "cnsmr_lylty_info_lower_silver_inc",
+      "short": "Cnsmr Lylty Info",
+      "tier": "silver",
+      "type": "incremental",
+      "desc": "Consumer loyalty information unpacked from raw Pub/Sub messages",
+      "tags": [
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "raw_cnsmr_lylty_info"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "cnsmr_mbrshp_info_lower_silver_inc",
+      "schema": "xfuze_staging",
+      "name": "cnsmr_mbrshp_info_lower_silver_inc",
+      "short": "Cnsmr Mbrshp Info",
+      "tier": "silver",
+      "type": "incremental",
+      "desc": "Consumer membership information unpacked from raw Pub/Sub messages",
+      "tags": [
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "raw_cnsmr_mbrshp_info"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "cnsmr_nm_info_lower_silver",
+      "schema": "xfuze_staging",
+      "name": "cnsmr_nm_info_lower_silver",
+      "short": "Cnsmr Nm Info",
+      "tier": "silver",
+      "type": "incremental",
+      "desc": "Consumer name information unpacked from raw Pub/Sub messages",
+      "tags": [
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "raw_cnsmr_nm_info"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "cnsmr_note_info_lower_silver",
+      "schema": "xfuze_staging",
+      "name": "cnsmr_note_info_lower_silver",
+      "short": "Cnsmr Note Info",
+      "tier": "silver",
+      "type": "table",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "cnsmr_phn_info",
+      "schema": "xfuze_consumer_master",
+      "name": "cnsmr_phn_info",
+      "short": "Cnsmr Phn Info",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "cnsmr_src_xref_lower_silver",
+      "schema": "xfuze_staging",
+      "name": "cnsmr_src_xref_lower_silver",
+      "short": "Cnsmr Src Xref",
+      "tier": "silver",
+      "type": "incremental",
+      "desc": "Consumer source cross-reference information unpacked from raw Pub/Sub messages",
+      "tags": [
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "raw_cnsmr_src_xref"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "ctry_xref",
+      "schema": "xfuze_consumer_master",
+      "name": "ctry_xref",
+      "short": "Ctry Xref",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "customers_landing_table",
+      "schema": "xfuze_mattel_shopify",
+      "name": "customers_landing_table",
+      "short": "Customers",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "customers_lower_silver",
+      "schema": "xfuze_staging",
+      "name": "customers_lower_silver",
+      "short": "Customers",
+      "tier": "silver",
+      "type": "incremental",
+      "desc": "Enriched customer data from Shopify with metafields including membership, preferences, and consumer payload information",
+      "tags": [
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "customers_landing_table"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "ga4_mc_events_inc",
+      "schema": "xfuze_analytics",
+      "name": "ga4_mc_events_inc",
+      "short": "Ga4 Mc Events",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "ga4_mc_events_new",
+      "schema": "xfuze_analytics",
+      "name": "ga4_mc_events_new",
+      "short": "Ga4 Mc Events New",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "ga_lower_silver_creations_us",
+      "schema": "xfuze_staging",
+      "name": "ga_lower_silver_creations_us",
+      "short": "Ga Us",
+      "tier": "silver",
+      "type": "incremental",
+      "desc": "Transformed GA4 events matching standard BigQuery export schema",
+      "tags": [
+        "daily",
+        "ga4"
+      ],
+      "deps": [
+        "ga_raw_ingestion_table"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "ga_raw_ingestion_table",
+      "schema": "xfuze_analytics",
+      "name": "ga_raw_ingestion_table",
+      "short": "Ga Raw Ingestion Table",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "legacy_brnd_mstr_lower_silver",
+      "schema": "xfuze_consumer_master_backup",
+      "name": "legacy_brnd_mstr_lower_silver",
+      "short": "Legacy Brnd Mstr",
+      "tier": "silver",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "legacy_cnsmr_addr_info",
+      "schema": "xfuze_consumer_master_backup",
+      "name": "legacy_cnsmr_addr_info",
+      "short": "Legacy Cnsmr Addr Info",
+      "tier": "silver",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "legacy_cnsmr_nm_info",
+      "schema": "xfuze_consumer_master_backup",
+      "name": "legacy_cnsmr_nm_info",
+      "short": "Legacy Cnsmr Nm Info",
+      "tier": "silver",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "legacy_lylty_mstr_lower_silver",
+      "schema": "xfuze_consumer_master_backup",
+      "name": "legacy_lylty_mstr_lower_silver",
+      "short": "Legacy Lylty Mstr",
+      "tier": "silver",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "legacy_products",
+      "schema": "xfuze_legacy",
+      "name": "legacy_products",
+      "short": "Legacy Products",
+      "tier": "gold_silver",
+      "type": "table",
+      "desc": "",
+      "tags": [
+        "products",
+        "daily"
+      ],
+      "deps": [
+        "products_new_fields_landing_table",
+        "ps_shopify_products"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "legacy_raw_cnsmr_info",
+      "schema": "xfuze_consumer_master_backup",
+      "name": "legacy_raw_cnsmr_info",
+      "short": "Legacy Raw Cnsmr Info",
+      "tier": "silver",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "legacy_raw_cnsmr_lylty_info",
+      "schema": "xfuze_consumer_master_backup",
+      "name": "legacy_raw_cnsmr_lylty_info",
+      "short": "Legacy Raw Cnsmr Lylty Info",
+      "tier": "silver",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "legacy_raw_cnsmr_mbrshp_info",
+      "schema": "xfuze_consumer_master_backup",
+      "name": "legacy_raw_cnsmr_mbrshp_info",
+      "short": "Legacy Raw Cnsmr Mbrshp Info",
+      "tier": "silver",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "legacy_raw_cnsmr_phn_info",
+      "schema": "xfuze_consumer_master_backup",
+      "name": "legacy_raw_cnsmr_phn_info",
+      "short": "Legacy Raw Cnsmr Phn Info",
+      "tier": "silver",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "legacy_raw_cnsmr_src_xref",
+      "schema": "xfuze_consumer_master_backup",
+      "name": "legacy_raw_cnsmr_src_xref",
+      "short": "Legacy Raw Cnsmr Src Xref",
+      "tier": "silver",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "legacy_sales_orders_lower_silver",
+      "schema": "xfuze_legacy",
+      "name": "legacy_sales_orders_lower_silver",
+      "short": "Legacy Sales Orders",
+      "tier": "gold_silver",
+      "type": "table",
+      "desc": "Orders data with line items from Shopify landing table",
+      "tags": [
+        "sales_orders",
+        "daily"
+      ],
+      "deps": [
+        "orders_new_fields_landing_table",
+        "ps_shopify_orders"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "lylty_mstr",
+      "schema": "xfuze_consumer_master",
+      "name": "lylty_mstr",
+      "short": "Lylty Mstr",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "mbrshp_mstr",
+      "schema": "xfuze_consumer_master",
+      "name": "mbrshp_mstr",
+      "short": "Mbrshp Mstr",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "mbrshp_mstr_lower_silver",
+      "schema": "xfuze_consumer_master_backup",
+      "name": "mbrshp_mstr_lower_silver",
+      "short": "Mbrshp Mstr",
+      "tier": "silver",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "orders_landing_table",
+      "schema": "xfuze_mattel_shopify",
+      "name": "orders_landing_table",
+      "short": "Orders",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "orders_new_fields_landing_table",
+      "schema": "xfuze_mattel_shopify",
+      "name": "orders_new_fields_landing_table",
+      "short": "Orders New Fields",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "predict_spring_incremental_landing_table",
+      "schema": "xfuze_predict_spring",
+      "name": "predict_spring_incremental_landing_table",
+      "short": "Predict Springremental",
+      "tier": "silver",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "predict_spring_landing_table",
+      "schema": "xfuze_predict_spring",
+      "name": "predict_spring_landing_table",
+      "short": "Predict Spring",
+      "tier": "silver",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "predict_spring_lower_silver",
+      "schema": "xfuze_staging",
+      "name": "predict_spring_lower_silver",
+      "short": "Predict Spring",
+      "tier": "silver",
+      "type": "incremental",
+      "desc": "Orders data with line items from Predict Spring landing table",
+      "tags": [
+        "sales_orders",
+        "daily"
+      ],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "predict_spring_lower_silver_incremental",
+      "schema": "xfuze_staging",
+      "name": "predict_spring_lower_silver_incremental",
+      "short": "Predict Springremental",
+      "tier": "silver",
+      "type": "incremental",
+      "desc": "Orders data with line items from Predict Spring landing table",
+      "tags": [
+        "sales_orders",
+        "daily"
+      ],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "predict_spring_lower_silver_union",
+      "schema": "xfuze_predict_spring",
+      "name": "predict_spring_lower_silver_union",
+      "short": "Predict Spring",
+      "tier": "silver",
+      "type": "table",
+      "desc": "predict spring union - historical and incremental",
+      "tags": [
+        "sales_orders",
+        "daily"
+      ],
+      "deps": [
+        "predict_spring_lower_silver",
+        "predict_spring_lower_silver_incremental"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "predict_spring_silver",
+      "schema": "xfuze_predict_spring",
+      "name": "predict_spring_silver",
+      "short": "Predict Spring",
+      "tier": "gold_silver",
+      "type": "table",
+      "desc": "Predict Spring sales cleaned with business logic applied",
+      "tags": [
+        "sales_orders",
+        "daily"
+      ],
+      "deps": [
+        "predict_spring_lower_silver_union"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "product_lower_silver",
+      "schema": "xfuze_staging",
+      "name": "product_lower_silver",
+      "short": "Product",
+      "tier": "silver",
+      "type": "incremental",
+      "desc": "Products data with variants, images, and metafields from Shopify landing table",
+      "tags": [
+        "products",
+        "daily"
+      ],
+      "deps": [
+        "products_landing_table"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "product_lower_silver_union",
+      "schema": "xfuze_product",
+      "name": "product_lower_silver_union",
+      "short": "Product",
+      "tier": "gold_silver",
+      "type": "incremental",
+      "desc": "sales orders cleaned with business logic applied",
+      "tags": [
+        "products",
+        "daily"
+      ],
+      "deps": [
+        "legacy_products",
+        "product_lower_silver"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "products_landing_table",
+      "schema": "xfuze_mattel_shopify",
+      "name": "products_landing_table",
+      "short": "Products",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "products_new_fields_landing_table",
+      "schema": "xfuze_mattel_shopify",
+      "name": "products_new_fields_landing_table",
+      "short": "Products New Fields",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "ps_shopify_orders",
+      "schema": "xfuze_mattel_shopify",
+      "name": "ps_shopify_orders",
+      "short": "Ps Shopify Orders",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "ps_shopify_products",
+      "schema": "xfuze_mattel_shopify",
+      "name": "ps_shopify_products",
+      "short": "Ps Shopify Products",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "raw_cnsmr_addr_info",
+      "schema": "xfuze_consumer_master",
+      "name": "raw_cnsmr_addr_info",
+      "short": "Raw Cnsmr Addr Info",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "raw_cnsmr_chld_info",
+      "schema": "xfuze_consumer_master",
+      "name": "raw_cnsmr_chld_info",
+      "short": "Raw Cnsmr Chld Info",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "raw_cnsmr_info",
+      "schema": "xfuze_consumer_master",
+      "name": "raw_cnsmr_info",
+      "short": "Raw Cnsmr Info",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "raw_cnsmr_lylty_info",
+      "schema": "xfuze_consumer_master",
+      "name": "raw_cnsmr_lylty_info",
+      "short": "Raw Cnsmr Lylty Info",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "raw_cnsmr_mbrshp_info",
+      "schema": "xfuze_consumer_master",
+      "name": "raw_cnsmr_mbrshp_info",
+      "short": "Raw Cnsmr Mbrshp Info",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "raw_cnsmr_nm_info",
+      "schema": "xfuze_consumer_master",
+      "name": "raw_cnsmr_nm_info",
+      "short": "Raw Cnsmr Nm Info",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "raw_cnsmr_src_xref",
+      "schema": "xfuze_consumer_master",
+      "name": "raw_cnsmr_src_xref",
+      "short": "Raw Cnsmr Src Xref",
+      "tier": "source",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "sales_lower_silver_union",
+      "schema": "xfuze_sales_order",
+      "name": "sales_lower_silver_union",
+      "short": "Sales",
+      "tier": "gold_silver",
+      "type": "incremental",
+      "desc": "sales order union",
+      "tags": [
+        "sales_orders",
+        "daily"
+      ],
+      "deps": [
+        "legacy_sales_orders_lower_silver",
+        "sales_orders_lower_silver"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "sales_orders_lower_silver",
+      "schema": "xfuze_staging",
+      "name": "sales_orders_lower_silver",
+      "short": "Sales Orders",
+      "tier": "silver",
+      "type": "incremental",
+      "desc": "Orders data with line items from Shopify landing table",
+      "tags": [
+        "sales_orders",
+        "daily"
+      ],
+      "deps": [
+        "orders_landing_table"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "sales_orders_predict_spring_silver_union",
+      "schema": "xfuze_sales_order",
+      "name": "sales_orders_predict_spring_silver_union",
+      "short": "Sales Orders Predict Spring",
+      "tier": "gold_silver",
+      "type": "incremental",
+      "desc": "Sales orders cleaned with business logic applied",
+      "tags": [
+        "sales_orders",
+        "daily"
+      ],
+      "deps": [
+        "predict_spring_silver",
+        "sales_lower_silver_union",
+        "sales_orders_returnlines",
+        "sales_orders_saleslines"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "sales_orders_returnlines",
+      "schema": "xfuze_sales_order",
+      "name": "sales_orders_returnlines",
+      "short": "Sales Orders Returnlines",
+      "tier": "silver",
+      "type": "incremental",
+      "desc": "Sales orders cleaned with business logic applied",
+      "tags": [
+        "sales_orders",
+        "daily"
+      ],
+      "deps": [
+        "sales_lower_silver_union"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "sales_orders_saleslines",
+      "schema": "xfuze_sales_order",
+      "name": "sales_orders_saleslines",
+      "short": "Sales Orders Saleslines",
+      "tier": "silver",
+      "type": "incremental",
+      "desc": "Sales orders cleaned with business logic applied",
+      "tags": [
+        "sales_orders",
+        "daily"
+      ],
+      "deps": [
+        "sales_lower_silver_union"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "sales_orders_silver",
+      "schema": "xfuze_sales_order",
+      "name": "sales_orders_silver",
+      "short": "Sales Orders",
+      "tier": "gold_silver",
+      "type": "incremental",
+      "desc": "sales order union",
+      "tags": [
+        "sales_orders",
+        "daily"
+      ],
+      "deps": [
+        "sales_orders_predict_spring_silver_union"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "sales_orders_silver_analytical_view",
+      "schema": "xfuze_sales_order",
+      "name": "sales_orders_silver_analytical_view",
+      "short": "Sales Orders Analytical View",
+      "tier": "gold_silver",
+      "type": "incremental",
+      "desc": "sales order silver for the analytical view",
+      "tags": [
+        "sales_orders",
+        "daily"
+      ],
+      "deps": [
+        "sales_lower_silver_union"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "src_acq_mstr_lower_silver",
+      "schema": "xfuze_consumer_master_backup",
+      "name": "src_acq_mstr_lower_silver",
+      "short": "Src Acq Mstr",
+      "tier": "silver",
+      "type": "declaration",
+      "desc": "",
+      "tags": [],
+      "deps": [],
+      "tableau": []
+    },
+    {
+      "id": "xfuze_bubblehouse_silver",
+      "schema": "xfuze_customer",
+      "name": "xfuze_bubblehouse_silver",
+      "short": "Bubblehouse",
+      "tier": "gold_silver",
+      "type": "incremental",
+      "desc": "",
+      "tags": [
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "bubblehouse_points_data_lower_silver"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "xfuze_consumer_master_base_info_silver",
+      "schema": "xfuze_customer",
+      "name": "xfuze_consumer_master_base_info_silver",
+      "short": "Consumer Master Base Info",
+      "tier": "gold_silver",
+      "type": "table",
+      "desc": "customer data current and historical",
+      "tags": [
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "cnsmr_addr_info_lower_silver",
+        "cnsmr_info_lower_silver_inc",
+        "cnsmr_nm_info_lower_silver",
+        "cnsmr_phn_info",
+        "cnsmr_src_xref_lower_silver",
+        "src_acq_mstr_lower_silver"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "xfuze_consumer_master_brand_union",
+      "schema": "xfuze_customer",
+      "name": "xfuze_consumer_master_brand_union",
+      "short": "Consumer Master Brand",
+      "tier": "gold_silver",
+      "type": "table",
+      "desc": "customer data current and historical",
+      "tags": [
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "brnd_mstr_lower_silver"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "xfuze_consumer_master_history_silver",
+      "schema": "xfuze_customer",
+      "name": "xfuze_consumer_master_history_silver",
+      "short": "Consumer Master History",
+      "tier": "gold_silver",
+      "type": "table",
+      "desc": "customer data current and historical",
+      "tags": [
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "xfuze_bubblehouse_silver",
+        "xfuze_consumer_master_base_info_silver",
+        "xfuze_consumer_master_brand_union",
+        "xfuze_consumer_master_loyalty_union",
+        "xfuze_consumer_master_membership_union"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "xfuze_consumer_master_loyalty_month_end",
+      "schema": "xfuze_customer",
+      "name": "xfuze_consumer_master_loyalty_month_end",
+      "short": "Consumer Master Loyalty Month End",
+      "tier": "gold_silver",
+      "type": "table",
+      "desc": "Consumer loyalty data current and historical",
+      "tags": [
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "xfuze_consumer_master_loyalty_union"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "xfuze_consumer_master_loyalty_union",
+      "schema": "xfuze_customer",
+      "name": "xfuze_consumer_master_loyalty_union",
+      "short": "Consumer Master Loyalty",
+      "tier": "gold_silver",
+      "type": "table",
+      "desc": "Consumer loyalty data current and historical",
+      "tags": [
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "blueconic_lylty_lower_silver",
+        "cnsmr_lylty_info_lower_silver_inc",
+        "lylty_mstr"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "xfuze_consumer_master_membership_union",
+      "schema": "xfuze_customer",
+      "name": "xfuze_consumer_master_membership_union",
+      "short": "Consumer Master Membership",
+      "tier": "gold_silver",
+      "type": "table",
+      "desc": "Customer data current and historical",
+      "tags": [
+        "customers",
+        "daily"
+      ],
+      "deps": [
+        "blueconic_membership_lower_silver",
+        "cnsmr_mbrshp_info_lower_silver_inc",
+        "mbrshp_mstr",
+        "mbrshp_mstr_lower_silver"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "xfuze_ga_customer_matching",
+      "schema": "xfuze_ga",
+      "name": "xfuze_ga_customer_matching",
+      "short": "Ga Customer Matching",
+      "tier": "gold_silver",
+      "type": "incremental",
+      "desc": "customer matching query",
+      "tags": [
+        "weekly",
+        "ga4"
+      ],
+      "deps": [
+        "xfuze_ga_events_cleaned_creations_us"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "xfuze_ga_events_cleaned_creations_us",
+      "schema": "xfuze_ga",
+      "name": "xfuze_ga_events_cleaned_creations_us",
+      "short": "Ga Events Cleaned Us",
+      "tier": "gold_silver",
+      "type": "incremental",
+      "desc": "cleaned event level ga data",
+      "tags": [
+        "ga4",
+        "daily"
+      ],
+      "deps": [
+        "ga4_mc_events_inc",
+        "ga4_mc_events_new",
+        "xfuze_legacy_ga_event_attribution_creations_us"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "xfuze_ga_sessions_creations",
+      "schema": "bi_marketing",
+      "name": "xfuze_ga_sessions_creations",
+      "short": "Ga Sessions",
+      "tier": "gold_analytics",
+      "type": "incremental",
+      "desc": "Cleaned event level GA data with session aggregation and purchase attribution",
+      "tags": [
+        "ga4",
+        "daily"
+      ],
+      "deps": [
+        "bi_customer_trading_mart_creations",
+        "xfuze_ga_customer_matching"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "xfuze_legacy_ga_event_attribution_creations_us",
+      "schema": "xfuze_ga",
+      "name": "xfuze_legacy_ga_event_attribution_creations_us",
+      "short": "Legacy Ga Event Attribution Us",
+      "tier": "gold_silver",
+      "type": "table",
+      "desc": "legacy ga data",
+      "tags": [
+        "ga4",
+        "daily"
+      ],
+      "deps": [
+        "ga4_mc_events_new"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "xfuze_product_silver",
+      "schema": "xfuze_product",
+      "name": "xfuze_product_silver",
+      "short": "Product",
+      "tier": "gold_silver",
+      "type": "incremental",
+      "desc": "sales orders cleaned with business logic applied",
+      "tags": [
+        "products",
+        "daily"
+      ],
+      "deps": [
+        "product_lower_silver_union",
+        "xt_products"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "xfuze_store_details",
+      "schema": "xfuze_store",
+      "name": "xfuze_store_details",
+      "short": "Store Details",
+      "tier": "gold_silver",
+      "type": "table",
+      "desc": "Orders data with line items from Shopify landing table",
+      "tags": [
+        "store",
+        "sales_orders",
+        "daily"
+      ],
+      "deps": [
+        "predict_spring_lower_silver_union"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "xt_products",
+      "schema": "xt_gsheets",
+      "name": "xt_products",
+      "short": "Xt Products",
+      "tier": "source",
+      "type": "table",
+      "desc": "Products data from Mattel gsheet",
+      "tags": [
+        "products",
+        "daily"
+      ],
+      "deps": [
+        "xt_products_2026_gs"
+      ],
+      "tableau": []
+    },
+    {
+      "id": "xt_products_2026_gs",
+      "schema": "xt_gsheets",
+      "name": "xt_products_2026_gs",
+      "short": "Xt Products 2026 Gs",
+      "tier": "source",
+      "type": "operations",
+      "desc": "",
+      "tags": [
+        "products",
+        "daily"
+      ],
+      "deps": [],
+      "tableau": []
+    }
+  ]
+}
